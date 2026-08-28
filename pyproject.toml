@@ -23,7 +23,7 @@ build-backend = "hatchling.build"
 packages = ["src/agent_keyboard"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/agent_keyboard", "config", "hooks", "examples", "NOTICE", "LICENSE", "README.md"]
+include = ["src/agent_keyboard", "config", "hooks", "examples", "NOTICE", "LICENSE", "README.md", "README.zh-CN.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

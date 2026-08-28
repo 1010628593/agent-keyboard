@@ -1,5 +1,7 @@
 # Agent Keyboard
 
+English | [简体中文](README.zh-CN.md)
+
 Turn a **ROG Strix Scope II RX** (游侠 2 RX, PID `0x1AB5`) into a 107-pixel Agent status dashboard on macOS.
 
 This is a Mac-native port of the ASUS Aura TUF **Direct** HID protocol — the same framing [RSS_II_RGB](https://github.com/bbfox0703/RSS_II_RGB) uses on Windows, originally documented in OpenRGB's TUF keyboard driver. The Windows-only bits (`hid.dll` / `setupapi.dll`) are replaced with **hidapi / IOKit**. The Core (107-LED map, framebuffer, Direct packet builder) is reused as data, not as a .NET runtime.
@@ -57,9 +59,54 @@ uv pip install -e ".[dev]"
 
 `hidapi` is the C library (IOKit). The Python `hid` package is only a binding — install both. `--simulate` works without hardware.
 
-This daemon looks for PID **0x1AB5** (Scope II RX) or **0x1AB3** (NX). A **ROG Omni Receiver** (mouse dongle, PID `0x1ACE`) is a different ASUS device and is ignored. Plug the 游侠 2 RX in over USB.
+## Connecting a device
 
-macOS talks to the **vendor control collection** (usage page `0xFF00`, interface 1). That is not the boot keyboard interface, so this should not steal typing.
+Lighting control uses the ASUS Aura **vendor HID collection** (usage page `0xFF00`, interface 1). That is not the boot keyboard, so typing is not stolen and Input Monitoring is not required.
+
+### Supported hardware
+
+| Device | PID | Lighting |
+| --- | --- | --- |
+| ROG Strix Scope II RX (游侠 2 RX) | `0x1AB5` | Mapped — 107 LEDs |
+| ROG Strix Scope II NX | `0x1AB3` | Mapped — same layout |
+| Other TUF / ROG Aura boards | various | Visible, LED map not implemented |
+| ROG Omni Receiver | `0x1ACE` | Ignored (mouse dongle) |
+| ROG Harpe Ace | — | UI placeholder; wheel lighting is not controllable |
+
+### Plug in over USB
+
+1. Use the keyboard’s **USB-C cable**. SpeedNova 2.4 GHz and Bluetooth do not expose Aura Direct on macOS.
+2. Do not use a **ROG Omni Receiver**. That dongle is a different ASUS device (typically a mouse) and is ignored.
+3. Quit **Armoury Crate**, **OpenRGB**, and any other Aura owner. Only one process can hold the collection.
+4. Pick **one** owner: `python -m agent_keyboard serve` **or** the Agent Light app, not both.
+
+### Verify the Aura interface
+
+```bash
+python -m agent_keyboard enumerate
+python -m agent_keyboard probe
+```
+
+`enumerate` should list a row marked `*` with `usage=FF00:0001`. `probe` prints firmware and layout id.
+
+No keyboard yet: use `--simulate`, or Settings → Simulate keyboard in the app.
+
+### Agent Light app
+
+The app opens the keyboard on launch. **Devices** shows Connected / Unavailable automatically.
+
+- Stop `python -m agent_keyboard serve` before launching the app.
+- Settings → Keyboard → **Connect Keyboard** if the open failed.
+- **Use for Agent Lighting** enables the dashboard on a mapped board.
+
+### If connect fails
+
+| Symptom | What to do |
+| --- | --- |
+| No ASUS HID, or no `*` row | Cable in, not 2.4G / Omni. For the Python CLI: `brew install hidapi` |
+| Aura interface busy | Stop the other owner, then Connect |
+| Unmapped board | Catalog only until a LED map exists for that PID |
+| HID write failed | Unplug/replug USB; close Armoury Crate / OpenRGB |
 
 ## Commands
 
@@ -125,7 +172,7 @@ Hooks keep working:
 ./hooks/agent-status.sh codex running 0.42
 ```
 
-Settings → Simulate keyboard runs the renderer without hardware. Close Armoury Crate / OpenRGB first if Connect fails.
+Settings → Simulate keyboard runs the renderer without hardware. See [Connecting a device](#connecting-a-device) if Connect fails.
 
 ## Tests
 
