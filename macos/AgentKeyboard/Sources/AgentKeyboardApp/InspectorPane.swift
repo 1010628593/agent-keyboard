@@ -36,12 +36,17 @@ struct DeviceInspector: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: kind.symbol)
-                .font(.system(size: 48))
-                .foregroundStyle(AKTheme.accent)
-                .frame(maxWidth: .infinity)
-                .frame(height: 120)
-                .background(AKTheme.keyWell, in: .rect(cornerRadius: 12))
+            VStack(spacing: 8) {
+                Image(systemName: kind.symbol)
+                    .font(.system(size: 32))
+                    .foregroundStyle(model.isConnected(kind) ? AKTheme.accent : Color.secondary)
+                Text(verbatim: model.productName(for: kind))
+                    .font(.callout.weight(.medium))
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 18)
+            .background(AKTheme.keyWell, in: .rect(cornerRadius: 12))
             labeled(AKL("Type"), kind.localizedTitle)
             labeled(AKL("Connection"), verbatim: kind.connection)
             HStack {
@@ -51,18 +56,34 @@ struct DeviceInspector: View {
                     .foregroundStyle(model.isConnected(kind) ? AKTheme.success : .secondary)
             }
             .font(.callout)
-            VStack(alignment: .leading, spacing: 8) {
-                Label {
-                    Text(AKL("Keyboard roles"))
-                } icon: {
-                    Image(systemName: "sparkle")
+            if kind == .keyboard {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label {
+                        Text(AKL("Keyboard roles"))
+                    } icon: {
+                        Image(systemName: "sparkle")
+                    }
+                    .font(.headline)
+                    Text(AKL("F1–F6 are online agents. The rest of the board follows priority."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ZoneSchematic(kind: kind, active: model.isConnected(kind), previewHeight: 64)
+                        .frame(height: 72)
                 }
-                .font(.headline)
-                Text(AKL("F1–F6 are online agents. The rest of the board follows priority."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ZoneSchematic(kind: kind)
-                    .frame(height: 72)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label {
+                        Text(AKL("Mouse lighting"))
+                    } icon: {
+                        Image(systemName: "computermouse")
+                    }
+                    .font(.headline)
+                    Text(AKL("Mouse lighting is preview only"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ZoneSchematic(kind: kind, active: model.isConnected(kind), previewHeight: 64)
+                        .frame(height: 72)
+                }
             }
             Button {
                 model.useForAgentLighting()
@@ -328,7 +349,7 @@ struct LightingInspector: View {
             }
             labeled(AKL("Device"), verbatim: model.productName(for: model.selectedPeripheral))
             labeled(AKL("Agent"), verbatim: AgentProfile.named(model.selectedAgentID ?? "")?.name ?? "—")
-            labeled(AKL("Effect"), look.effect.localizedTitle)
+            effectPicker
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 70), spacing: 6)], spacing: 6) {
                 ForEach(AgentStatus.allCases) { status in
                     Button {
@@ -336,6 +357,7 @@ struct LightingInspector: View {
                     } label: {
                         Text(status.localizedTitle)
                             .font(.caption2.weight(.medium))
+                            .foregroundStyle(model.lightingState == status ? AKTheme.accent : .primary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 4)
                             .background(
@@ -392,43 +414,103 @@ struct LightingInspector: View {
         }
     }
 
+    /// The effect is editable right here — previously this row was read-only
+    /// and changing the effect required going back to the main grid.
+    private var effectPicker: some View {
+        HStack {
+            Text(AKL("Effect")).foregroundStyle(.secondary)
+            Spacer()
+            Picker(
+                selection: Binding(
+                    get: { model.look(for: model.lightingState).effect },
+                    set: { model.setEffect($0) }
+                )
+            ) {
+                ForEach(LightingEffect.allCases) { effect in
+                    Label {
+                        Text(effect.localizedTitle)
+                    } icon: {
+                        Image(systemName: effect.symbol)
+                    }
+                    .tag(effect)
+                }
+            } label: {
+                Text(AKL("Effect"))
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .fixedSize()
+        }
+        .font(.callout)
+    }
+
     private var applyBar: some View {
-        Button {
-            model.applyLighting()
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: model.lightingAppliedRecently ? "checkmark" : "sparkle")
-                Text(model.lightingAppliedRecently ? AKL("Applied") : AKL("Apply Lighting"))
+        HStack(spacing: 10) {
+            Button {
+                model.applyLighting()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: model.lightingAppliedRecently ? "checkmark" : "sparkle")
+                    Text(model.lightingAppliedRecently ? AKL("Applied") : AKL("Apply Lighting"))
+                }
+            }
+            .buttonStyle(.akPrimary)
+            .disabled(!model.isConnected(.keyboard))
+            .accessibilityLabel(AKL("Apply Lighting"))
+            if model.pinnedCanvas != nil {
+                Button {
+                    model.releaseCanvasPin()
+                } label: {
+                    Text(AKL("Resume Auto"))
+                }
+                .buttonStyle(.akSecondary)
+                .accessibilityLabel(AKL("Resume Auto"))
             }
         }
-        .buttonStyle(.akPrimary)
-        .accessibilityLabel(AKL("Apply Lighting"))
     }
 
     private var swatches: some View {
-        HStack(spacing: 8) {
-            ForEach(Array(swatchColors.enumerated()), id: \.offset) { _, color in
+        let current = model.look(for: model.lightingState).color
+        return HStack(spacing: 8) {
+            ForEach(swatchColors, id: \.self) { rgb in
                 Button {
-                    model.setColor(color)
+                    model.setColor(rgb.color)
                 } label: {
                     Circle()
-                        .fill(color)
+                        .fill(rgb.color)
                         .frame(width: 18, height: 18)
                         .overlay {
-                            Circle().strokeBorder(.white.opacity(0.35), lineWidth: 1)
+                            Circle().strokeBorder(
+                                current == rgb ? Color.primary : Color.white.opacity(0.35),
+                                lineWidth: current == rgb ? 2 : 1
+                            )
                         }
                 }
                 .buttonStyle(.plain)
             }
+            ColorPicker(
+                "",
+                selection: Binding(
+                    get: { model.look(for: model.lightingState).color.color },
+                    set: { model.setColor($0) }
+                ),
+                supportsOpacity: false
+            )
+            .labelsHidden()
+            .frame(width: 28, height: 22)
         }
     }
 
-    private var swatchColors: [Color] {
+    /// Matches StateLook.paletteName so picking a swatch reports a named
+    /// palette color instead of "Custom".
+    private var swatchColors: [RGB] {
         [
-            RGB(16, 185, 129).color,
-            RGB(40, 90, 255).color,
-            Color.cyan,
-            AKTheme.accent,
+            RGB(16, 185, 129),
+            RGB(40, 90, 255),
+            RGB(20, 184, 166),
+            RGB(139, 92, 246),
+            RGB(245, 158, 11),
+            RGB(239, 68, 68),
         ]
     }
 

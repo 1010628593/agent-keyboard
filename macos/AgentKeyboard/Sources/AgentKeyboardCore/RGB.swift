@@ -71,4 +71,24 @@ public struct RGB: Hashable, Sendable, Equatable {
     }
 
     public var luminance: Int { Int(r) + Int(g) + Int(b) }
+
+    /// Hue in 0..1, derived from the RGB triple. Achromatic colors return 0.
+    public var hue: Double {
+        let rf = Double(r) / 255
+        let gf = Double(g) / 255
+        let bf = Double(b) / 255
+        let maxC = Swift.max(rf, gf, bf)
+        let minC = Swift.min(rf, gf, bf)
+        let delta = maxC - minC
+        guard delta > 0.0001 else { return 0 }
+        let h: Double
+        if maxC == rf {
+            h = ((gf - bf) / delta).truncatingRemainder(dividingBy: 6)
+        } else if maxC == gf {
+            h = (bf - rf) / delta + 2
+        } else {
+            h = (rf - gf) / delta + 4
+        }
+        return (h / 6 + 1).truncatingRemainder(dividingBy: 1)
+    }
 }

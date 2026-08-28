@@ -9,7 +9,10 @@
 "Connected devices are recognized automatically." = "Connected devices are recognized automatically.";
 "Connected (%lld)" = "Connected (%lld)";
 "Connected" = "Connected";
+"Unavailable (%lld)" = "Unavailable (%lld)";
 "Unavailable" = "Unavailable";
+"No connected devices" = "No connected devices";
+"Mouse lighting" = "Mouse lighting";
 "Unassigned" = "Unassigned";
 "unassigned" = "unassigned";
 "Use for Agent Lighting" = "Use for Agent Lighting";
@@ -45,6 +48,7 @@
 "Effect" = "Effect";
 "Apply Lighting" = "Apply Lighting";
 "Applied" = "Applied";
+"Resume Auto" = "Resume Auto";
 "Mouse lighting is preview only" = "Mouse lighting is preview only";
 "Wheel" = "Wheel";
 "Preview" = "Preview";
@@ -64,8 +68,18 @@
 "Static" = "Static";
 "Breathing" = "Breathing";
 "Wave" = "Wave";
-"Reactive" = "Reactive";
+"Ripple" = "Ripple";
+"Comet" = "Comet";
+"Meteor" = "Meteor";
+"Flow" = "Flow";
+"Rain" = "Rain";
+"Scanner" = "Scanner";
+"Sparkle" = "Sparkle";
+"Aurora" = "Aurora";
+"Gradient" = "Gradient";
 "Rainbow" = "Rainbow";
+"Heartbeat" = "Heartbeat";
+"Reactive" = "Reactive";
 "Off" = "Off";
 "Idle" = "Idle";
 "Thinking" = "Thinking";
@@ -103,6 +117,7 @@
 "Agent hooks are not installed. Status stays Idle until they are." = "Agent hooks are not installed. Status stays Idle until they are.";
 "Install available hooks" = "Install available hooks";
 "Merges notify.sh into existing agent configs. Does not replace mnemon or memmy hooks." = "Merges notify.sh into existing agent configs. Does not replace mnemon or memmy hooks.";
+"Codex skips new hook commands until you trust them in /hooks." = "Codex skips new hook commands until you trust them in /hooks.";
 "Open Agent Light" = "Open Agent Light";
 "Idle All" = "Idle All";
 "Quit Agent Light" = "Quit Agent Light";

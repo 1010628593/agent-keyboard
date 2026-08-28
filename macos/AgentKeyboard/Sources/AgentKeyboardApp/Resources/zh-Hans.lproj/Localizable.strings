@@ -9,7 +9,10 @@
 "Connected devices are recognized automatically." = "已连接的设备会自动识别。";
 "Connected (%lld)" = "已连接（%lld）";
 "Connected" = "已连接";
+"Unavailable (%lld)" = "不可用（%lld）";
 "Unavailable" = "不可用";
+"No connected devices" = "暂无已连接设备";
+"Mouse lighting" = "鼠标灯光";
 "Unassigned" = "未分配";
 "unassigned" = "未分配";
 "Use for Agent Lighting" = "用于智能体灯光";
@@ -45,6 +48,7 @@
 "Effect" = "灯效";
 "Apply Lighting" = "应用灯光";
 "Applied" = "已应用";
+"Resume Auto" = "恢复自动";
 "Mouse lighting is preview only" = "鼠标灯光仅供预览";
 "Wheel" = "滚轮";
 "Preview" = "预览";
@@ -64,8 +68,18 @@
 "Static" = "静态";
 "Breathing" = "呼吸";
 "Wave" = "波浪";
-"Reactive" = "响应";
+"Ripple" = "涟漪";
+"Comet" = "流星";
+"Meteor" = "流星雨";
+"Flow" = "水流";
+"Rain" = "雨滴";
+"Scanner" = "扫描";
+"Sparkle" = "星光";
+"Aurora" = "极光";
+"Gradient" = "流光";
 "Rainbow" = "彩虹";
+"Heartbeat" = "心跳";
+"Reactive" = "响应";
 "Off" = "关闭";
 "Idle" = "空闲";
 "Thinking" = "思考中";
@@ -103,6 +117,7 @@
 "Agent hooks are not installed. Status stays Idle until they are." = "尚未安装智能体钩子，状态会一直停在空闲。";
 "Install available hooks" = "安装可用钩子";
 "Merges notify.sh into existing agent configs. Does not replace mnemon or memmy hooks." = "将 notify.sh 合并进现有智能体配置，不会替换 mnemon 或 memmy 钩子。";
+"Codex skips new hook commands until you trust them in /hooks." = "Codex 会跳过未信任的钩子。若 F1 不亮，请在 Codex 中打开 /hooks 并信任该命令。";
 "Open Agent Light" = "打开 Agent Light";
 "Idle All" = "全部空闲";
 "Quit Agent Light" = "退出 Agent Light";

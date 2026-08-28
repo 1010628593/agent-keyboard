@@ -8,6 +8,6 @@ AGENT=${1:?agent id or slot}
 STATUS=${2:?status}
 CONTEXT=${3:-0}
 HOST=${AGENT_KEYBOARD_URL:-http://127.0.0.1:7420/event}
-exec curl -sS -X POST "$HOST" \
+exec /usr/bin/curl -sS --noproxy '*' -m 0.4 -X POST "$HOST" \
   -H 'content-type: application/json' \
   -d "{\"agent\":\"${AGENT}\",\"status\":\"${STATUS}\",\"context\":${CONTEXT}}"

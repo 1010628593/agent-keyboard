@@ -73,7 +73,11 @@ Agent 进入 Thinking 时，主键区先用像素字帖打出该 Agent 的字母
 
 按整板画布思维：设备 → 灯效。配色属于选中的 Agent，铺满主键区和数字键盘。
 
-灯效：Static / Breathing / Wave / Reactive / Rainbow / Off
+灯效：Static / Breathing / Wave / Ripple / Comet / Meteor / Flow / Rain / Scanner / Sparkle / Aurora / Gradient / Rainbow / Heartbeat / Reactive / Off
+
+- 空间类灯效（Wave、Ripple、Comet、Meteor、Flow、Rain、Scanner、Aurora、Gradient、Rainbow）在单键灯区（F1–F6 身份灯）自动退化为呼吸，保证身份灯平滑。
+- 状态默认搭配：Thinking → Comet、Tool → Ripple、Approval → Heartbeat、Done → Static、Error → Reactive。
+- 规则预览面板内可直接换灯效、取色（6 色板 + 自定义）；Apply 钉住画布后可用"恢复自动"解除。
 
 右侧参数：颜色、亮度、速度。选 Thinking 时可预览启动字帖。
 

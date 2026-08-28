@@ -5,203 +5,151 @@ struct AgentsView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            AgentLibraryPane()
-                .frame(minWidth: 240, idealWidth: 280, maxWidth: 320)
-            AgentKeysPane()
-                .frame(maxWidth: .infinity)
-        }
-        .padding(24)
-        .background(AKTheme.canvas)
-    }
-}
-
-struct AgentLibraryPane: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(AKL("Agents"))
-                    .font(.largeTitle.weight(.semibold))
-                Text(AKL("Each agent has a color scheme. F1–F6 show who is online."))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            ScrollView {
-                LazyVStack(spacing: 8) {
-                    ForEach(AgentProfile.library) { profile in
-                        LibraryAgentRow(profile: profile)
-                    }
-                }
-            }
-        }
-    }
-}
-
-struct LibraryAgentRow: View {
-    @Environment(AppModel.self) private var model
-    let profile: AgentProfile
-
-    private var slot: AgentSlot? {
-        model.dashboard.slot(forAgentID: profile.id)
-    }
-
-    var body: some View {
-        Button {
-            withAnimation(.snappy) { model.selectAgent(profile.id) }
-        } label: {
-            HStack(alignment: .top, spacing: 10) {
-                AgentGlyph(
-                    symbol: profile.symbol,
-                    tint: statusDot(slot?.status ?? .idle, agentID: profile.id)
-                )
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Circle()
-                            .fill(statusDot(slot?.status ?? .idle, agentID: profile.id))
-                            .frame(width: 7, height: 7)
-                        Text(profile.name)
-                            .font(.headline)
-                    }
-                    Text(profile.localizedSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            .padding(10)
-            .background(AKTheme.card, in: .rect(cornerRadius: AKTheme.radiusM))
-            .akSelected(model.selectedAgentID == profile.id, radius: AKTheme.radiusM)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(profile.name)
-        .accessibilityValue(slot?.status.localizedTitle ?? AKL("Idle"))
-    }
-
-    private func statusDot(_ status: AgentStatus, agentID: String) -> Color {
-        if status == .idle {
-            return Color.secondary.opacity(0.35)
-        }
-        return model.look(for: status, agentID: agentID).color.color
-    }
-}
-
-struct AgentKeysPane: View {
-    @Environment(AppModel.self) private var model
-
-    private let columns = [GridItem(.adaptive(minimum: 158), spacing: 10)]
-
-    var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(AKL("Online keys"))
-                        .font(.headline)
-                    Text(AKL("F1–F6 are identity lamps. Use the arrows to set who sits where."))
-                        .font(.caption)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(AKL("Agents"))
+                        .font(.largeTitle.weight(.semibold))
+                    Text(AKL("Each agent has a color scheme. Drag a row to change the key it lights."))
+                        .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(Array(model.dashboard.slots.enumerated()), id: \.element.spec.slot) { index, slot in
-                        SlotLampCard(
-                            slot: slot,
-                            isFirst: index == 0,
-                            isLast: index == model.dashboard.slots.count - 1
-                        )
-                    }
-                }
+                AgentSlotList()
                 KeyboardPreview(
                     pixels: model.lastPixels,
                     map: model.lightingMap,
                     highlight: model.dashboard.onlineKeyNames
                 )
-                .frame(maxHeight: 160)
+                .padding(14)
+                .frame(maxWidth: .infinity)
+                .frame(height: 190)
+                .background(AKTheme.keyWell, in: .rect(cornerRadius: AKTheme.radiusL))
+            }
+            .padding(24)
+            .frame(maxWidth: 860, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .background(AKTheme.canvas)
+    }
+}
+
+/// The single source of truth for "who sits on which key". Rows are reordered by
+/// dragging; there is no second list of keys to keep in sync.
+private struct AgentSlotList: View {
+    @Environment(AppModel.self) private var model
+    @State private var dropTarget: String?
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(model.dashboard.slots) { slot in
+                AgentSlotRow(slot: slot, isDropTarget: dropTarget == slot.spec.slot)
+                    .draggable(slot.spec.slot)
+                    .dropDestination(for: String.self) { payloads, _ in
+                        guard let source = payloads.first else { return false }
+                        dropTarget = nil
+                        withAnimation(.snappy) {
+                            model.moveAgent(fromSlotID: source, toSlotID: slot.spec.slot)
+                        }
+                        return true
+                    } isTargeted: { targeted in
+                        dropTarget = targeted ? slot.spec.slot : nil
+                    }
             }
         }
     }
 }
 
-struct SlotLampCard: View {
+private struct AgentSlotRow: View {
     @Environment(AppModel.self) private var model
     let slot: AgentSlot
-    var isFirst = false
-    var isLast = false
+    var isDropTarget = false
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Button {
-                guard slot.isAssigned else { return }
-                withAnimation(.snappy) { model.selectAgent(slot.spec.agentID) }
-            } label: {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(verbatim: slot.spec.keyName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Circle()
-                        .fill(slot.status == .idle
-                            ? Color.secondary.opacity(0.35)
-                            : model.look(for: slot.status, agentID: slot.spec.agentID).color.color)
-                        .frame(width: 14, height: 14)
-                    if slot.isAssigned {
-                        Text(verbatim: slot.spec.name)
-                            .font(.caption.weight(.medium))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    } else {
-                        Text(AKL("Unassigned"))
-                            .font(.caption.weight(.medium))
-                            .lineLimit(1)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(slot.status.localizedTitle)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .disabled(!slot.isAssigned)
-            .opacity(slot.isAssigned ? 1 : 0.6)
-            .accessibilityLabel(slot.spec.keyName)
-            .accessibilityValue("\(slot.spec.name), \(slot.status.displayTitle)")
+    private let radius = AKTheme.radiusM
 
-            VStack(spacing: 6) {
-                Button {
-                    move(-1)
-                } label: {
-                    Image(systemName: "chevron.up")
-                        .font(.caption2.weight(.semibold))
-                        .frame(width: 22, height: 22)
-                        .contentShape(.rect)
-                }
-                .disabled(isFirst || !slot.isAssigned)
-                .accessibilityLabel(AKL("Move up"))
-                Button {
-                    move(1)
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.caption2.weight(.semibold))
-                        .frame(width: 22, height: 22)
-                        .contentShape(.rect)
-                }
-                .disabled(isLast || !slot.isAssigned)
-                .accessibilityLabel(AKL("Move down"))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .opacity(slot.isAssigned ? 1 : 0.3)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AKTheme.inset, in: .rect(cornerRadius: 10))
-        .akSelected(slot.isAssigned && model.selectedAgentID == slot.spec.agentID, radius: 10)
+    private var isSelected: Bool {
+        slot.isAssigned && model.selectedAgentID == slot.spec.agentID
     }
 
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "line.3.horizontal")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .frame(width: 12)
+
+            Text(verbatim: slot.spec.keyName)
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(slot.isAssigned ? .primary : .secondary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(AKTheme.inset, in: .rect(cornerRadius: 6))
+
+            AgentGlyph(symbol: slot.profile.symbol, tint: tint)
+
+            VStack(alignment: .leading, spacing: 2) {
+                if slot.isAssigned {
+                    Text(verbatim: slot.spec.name)
+                        .font(.callout.weight(.semibold))
+                    Text(slot.profile.localizedSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text(AKL("Unassigned"))
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            if slot.isAssigned {
+                StatusPill(status: slot.status)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(AKTheme.card, in: .rect(cornerRadius: radius))
+        .overlay {
+            RoundedRectangle(cornerRadius: radius)
+                .strokeBorder(borderColor, lineWidth: isDropTarget ? 2 : (isSelected ? 1.5 : 1))
+        }
+        .animation(.snappy, value: isDropTarget)
+        .animation(.snappy, value: isSelected)
+        .contentShape(.rect)
+        .onTapGesture(perform: select)
+        .help(AKL("Drag to reorder"))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(slot.spec.keyName)
+        .accessibilityValue(slot.isAssigned ? "\(slot.spec.name), \(slot.status.displayTitle)" : "Unassigned")
+        .accessibilityAction(named: Text(AKL("Move up"))) { move(-1) }
+        .accessibilityAction(named: Text(AKL("Move down"))) { move(1) }
+    }
+
+    private var borderColor: Color {
+        if isDropTarget { return AKTheme.accent }
+        return isSelected ? AKTheme.selectionStroke : AKTheme.cardBorder
+    }
+
+    private var tint: Color {
+        guard slot.isAssigned, slot.status != .idle else { return Color.secondary.opacity(0.35) }
+        return model.look(for: slot.status, agentID: slot.spec.agentID).color.color
+    }
+
+    private func select() {
+        guard slot.isAssigned else { return }
+        withAnimation(.snappy) { model.selectAgent(slot.spec.agentID) }
+    }
+
+    /// Keyboard/ VoiceOver fallback: the row has no visible buttons, so reordering
+    /// without a mouse goes through accessibility actions.
     private func move(_ offset: Int) {
+        let slots = model.dashboard.slots
+        guard let index = slots.firstIndex(where: { $0.spec.slot == slot.spec.slot }) else { return }
+        let target = index + offset
+        guard slots.indices.contains(target) else { return }
         withAnimation(.snappy) {
-            model.moveAgent(slotID: slot.spec.slot, offset: offset)
+            model.moveAgent(fromSlotID: slot.spec.slot, toSlotID: slots[target].spec.slot)
         }
     }
 }
@@ -210,6 +158,13 @@ struct SlotLampCard: View {
     AgentsView()
         .environment(AppModel.preview)
         .preferredColorScheme(.dark)
+        .frame(width: 980, height: 720)
+}
+
+#Preview("Agents Light") {
+    AgentsView()
+        .environment(AppModel.preview)
+        .preferredColorScheme(.light)
         .frame(width: 980, height: 720)
 }
 

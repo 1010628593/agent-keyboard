@@ -38,7 +38,7 @@ public enum AK {
     public static let defaultBridgePort: UInt16 = 7420
     public static let defaultIdleTimeout: TimeInterval = 120
     public static let eventLogLimit = 200
-    public static let appVersion = "1.4.2"
+    public static let appVersion = "1.4.6"
     public static let tokenBudget = 20_000
     public static let defaultBrightness = 0.80
 }

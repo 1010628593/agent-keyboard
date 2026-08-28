@@ -208,26 +208,19 @@ public struct Dashboard: Equatable, Sendable {
         slots[dest].message = ""
     }
 
-    /// Swap the agents occupying two slots (F1–F6). Slot identity and key names stay put.
-    public mutating func swapAssignments(slotA: String, slotB: String) {
+    /// Move the occupant of one slot to another position on the F-row, shifting the
+    /// slots in between. Slot identity (F1–F6, key names) never moves; the agent and
+    /// its live state travel together, so a running agent is still running afterwards.
+    public mutating func moveAssignment(from slotA: String, to slotB: String) {
         guard slotA != slotB,
-              let a = slots.firstIndex(where: { $0.spec.slot == slotA }),
-              let b = slots.firstIndex(where: { $0.spec.slot == slotB })
+              let from = slots.firstIndex(where: { $0.spec.slot == slotA }),
+              let to = slots.firstIndex(where: { $0.spec.slot == slotB })
         else { return }
-        let agentID = slots[a].spec.agentID
-        let name = slots[a].spec.name
-        slots[a].spec.agentID = slots[b].spec.agentID
-        slots[a].spec.name = slots[b].spec.name
-        slots[b].spec.agentID = agentID
-        slots[b].spec.name = name
-        for index in [a, b] {
-            slots[index].status = .idle
-            slots[index].context = 0
-            slots[index].progress = nil
-            slots[index].message = ""
-            slots[index].lastEventAt = nil
-            slots[index].glyphUntil = nil
-            slots[index].doneUntil = nil
+        var occupants = slots.map(SlotOccupant.init)
+        let moved = occupants.remove(at: from)
+        occupants.insert(moved, at: to)
+        for (index, occupant) in occupants.enumerated() {
+            occupant.apply(to: &slots[index])
         }
     }
 
@@ -295,6 +288,44 @@ public struct Dashboard: Equatable, Sendable {
         slots[index].message = ""
         slots[index].lastEventAt = nil
         slots[index].glyphUntil = nil
+    }
+}
+
+/// The portable half of a slot: who sits on the key, plus everything the agent is
+/// currently doing. Swapping these between slots is what drag-to-reorder does.
+private struct SlotOccupant {
+    var agentID: String
+    var name: String
+    var status: AgentStatus
+    var context: Double
+    var progress: Double?
+    var message: String
+    var doneUntil: TimeInterval?
+    var lastEventAt: TimeInterval?
+    var glyphUntil: TimeInterval?
+
+    init(_ slot: AgentSlot) {
+        agentID = slot.spec.agentID
+        name = slot.spec.name
+        status = slot.status
+        context = slot.context
+        progress = slot.progress
+        message = slot.message
+        doneUntil = slot.doneUntil
+        lastEventAt = slot.lastEventAt
+        glyphUntil = slot.glyphUntil
+    }
+
+    func apply(to slot: inout AgentSlot) {
+        slot.spec.agentID = agentID
+        slot.spec.name = name
+        slot.status = status
+        slot.context = context
+        slot.progress = progress
+        slot.message = message
+        slot.doneUntil = doneUntil
+        slot.lastEventAt = lastEventAt
+        slot.glyphUntil = glyphUntil
     }
 }
 

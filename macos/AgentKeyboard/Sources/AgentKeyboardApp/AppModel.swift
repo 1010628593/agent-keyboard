@@ -41,6 +41,7 @@ final class AppModel {
     @ObservationIgnored private var engineTask: Task<Void, Never>?
     @ObservationIgnored private var reconnectTask: Task<Void, Never>?
     @ObservationIgnored private let snapshots = SnapshotBox()
+    @ObservationIgnored private let hidWriter = HIDWriterBox()
     @ObservationIgnored private(set) var frames = 0
     @ObservationIgnored private var didStart = false
     @ObservationIgnored private var eventTimes: [TimeInterval] = []
@@ -134,11 +135,26 @@ final class AppModel {
         if selectedAgentID == nil {
             selectedAgentID = "hermes"
         }
+        configureHIDWriter()
         startBridge()
         ensureAgentHooks()
         refreshDevices()
         connect()
         startEngine()
+    }
+
+    private func configureHIDWriter() {
+        hidWriter.onSuccess = { [weak self] in
+            Task { @MainActor in
+                self?.lastHIDWrite = Date()
+                self?.hidWriteFailures = 0
+            }
+        }
+        hidWriter.onFailure = { [weak self] error in
+            Task { @MainActor in
+                self?.handleHIDWriteFailure(error)
+            }
+        }
     }
 
     func shutdown() {
@@ -149,6 +165,7 @@ final class AppModel {
         engineTask = nil
         bridge.stop()
         bridgeListening = false
+        hidWriter.setKeyboard(nil)
         try? keyboard?.restoreStatic(color: .white, brightness: 8)
         keyboard?.close()
         keyboard = nil
@@ -162,6 +179,7 @@ final class AppModel {
         lastError = nil
         keyboard?.close()
         keyboard = nil
+        hidWriter.setKeyboard(nil)
         refreshDevices()
         do {
             if simulate {
@@ -171,6 +189,7 @@ final class AppModel {
                 identity = null.identity
                 lightingMap = null.lightingMap
                 connection = .connected(null.identity.product)
+                hidWriter.setKeyboard(null)
                 log("hid", "Simulator connected")
             } else {
                 let hid = KeyboardHID()
@@ -181,10 +200,12 @@ final class AppModel {
                 lastPixels = Array(repeating: .black, count: lightingMap.ledCount)
                 connection = .connected(hid.identity.product)
                 reconnectAttempt = 0
+                hidWriter.setKeyboard(hid)
                 log("hid", "Opened \(hid.identity.product) \(hid.identity.pidHex)")
             }
         } catch {
             keyboard = nil
+            hidWriter.setKeyboard(nil)
             lastError = describe(error)
             connection = .failed(AKString("Keyboard not available", locale: resolvedLocale))
             log("hid", lastError ?? "open failed")
@@ -224,16 +245,18 @@ final class AppModel {
         selectedAgentID = agentID
     }
 
-    /// Move the agent on a slot one position left/right on the F-row. Persists to agents.toml.
-    func moveAgent(slotID: String, offset: Int) {
-        guard let index = dashboard.slots.firstIndex(where: { $0.spec.slot == slotID }) else { return }
-        let target = index + offset
-        guard dashboard.slots.indices.contains(target) else { return }
-        let neighborSlot = dashboard.slots[target].spec.slot
-        let movedName = dashboard.slots[index].spec.name
-        dashboard.swapAssignments(slotA: slotID, slotB: neighborSlot)
+    /// Reorder the F-row: lift the agent off one slot and drop it on another,
+    /// shifting everything in between. Persists to agents.toml.
+    func moveAgent(fromSlotID: String, toSlotID: String) {
+        guard fromSlotID != toSlotID else { return }
+        guard let from = dashboard.slots.firstIndex(where: { $0.spec.slot == fromSlotID }),
+              let to = dashboard.slots.firstIndex(where: { $0.spec.slot == toSlotID })
+        else { return }
+        let movedName = dashboard.slots[from].spec.name
+        let targetKey = dashboard.slots[to].spec.keyName
+        dashboard.moveAssignment(from: fromSlotID, to: toSlotID)
         persistAgentSpecs()
-        log("config", "Moved \(movedName) to \(dashboard.slots[target].spec.keyName)")
+        log("config", "Moved \(movedName) to \(targetKey)")
     }
 
     /// Rewrite agents.toml from the current dashboard slot assignments.
@@ -601,6 +624,17 @@ final class AppModel {
         persistPinnedCanvas()
     }
 
+    /// Drops the pinned canvas from the UI so the board follows agent
+    /// priority again. Without this the only way out of a pin was an
+    /// incoming HTTP status event, which read as "stuck" to users.
+    func releaseCanvasPin() {
+        guard pinnedCanvas != nil else { return }
+        pinnedCanvas = nil
+        persistPinnedCanvas()
+        flushLighting()
+        log("lighting", "Released canvas pin")
+    }
+
     private func lightingPreview() -> SceneRenderer.BoardPreview? {
         guard sidebar == .lighting else { return nil }
         return .canvas(look(for: lightingState))
@@ -623,21 +657,22 @@ final class AppModel {
         return Array(repeating: dim, count: lightingMap.ledCount)
     }
 
+    /// Enqueue a frame for the background HID writer. Non-blocking: the main
+    /// thread is never stalled by 8 synchronous USB reports per frame, so event
+    /// application and UI stay responsive.
     private func writePixels(_ pixels: [RGB]) {
-        guard let keyboard else { return }
-        do {
-            try keyboard.writePixels(pixels)
-            lastHIDWrite = Date()
-            hidWriteFailures = 0
-        } catch {
-            hidWriteFailures += 1
-            if hidWriteFailures == 1 || hidWriteFailures % 32 == 0 {
-                log("hid", "write failed: \(error)")
-            }
-            if hidWriteFailures >= 64 {
-                connection = .failed(AKString("HID write failed.", locale: resolvedLocale))
-                scheduleReconnect()
-            }
+        guard keyboard != nil else { return }
+        hidWriter.submit(pixels)
+    }
+
+    private func handleHIDWriteFailure(_ error: Error) {
+        hidWriteFailures += 1
+        if hidWriteFailures == 1 || hidWriteFailures % 32 == 0 {
+            log("hid", "write failed: \(error)")
+        }
+        if hidWriteFailures >= 64 {
+            connection = .failed(AKString("HID write failed.", locale: resolvedLocale))
+            scheduleReconnect()
         }
     }
 
@@ -864,5 +899,58 @@ private final class SnapshotBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return publishedHealth
+    }
+}
+
+/// Serial background writer for keyboard frames. `writePixels` does 8 synchronous
+/// HID reports; running it on a dedicated queue keeps the main thread free so
+/// incoming agent events are applied without waiting on USB I/O. The latest
+/// pending frame coalesces so a backlog never forms.
+private final class HIDWriterBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private let queue = DispatchQueue(label: "agent-keyboard.hid")
+    private var keyboard: (any KeyboardDriver)?
+    private var pending: [RGB]?
+    private var draining = false
+
+    var onSuccess: (() -> Void)?
+    var onFailure: ((Error) -> Void)?
+
+    func setKeyboard(_ kb: (any KeyboardDriver)?) {
+        lock.lock()
+        keyboard = kb
+        pending = nil
+        lock.unlock()
+    }
+
+    func submit(_ pixels: [RGB]) {
+        lock.lock()
+        pending = pixels
+        let alreadyDraining = draining
+        draining = true
+        lock.unlock()
+        guard !alreadyDraining else { return }
+        queue.async { [weak self] in
+            self?.drain()
+        }
+    }
+
+    private func drain() {
+        while true {
+            lock.lock()
+            let kb = keyboard
+            let batch = pending
+            pending = nil
+            if batch == nil { draining = false }
+            lock.unlock()
+            guard let kb, let batch else { return }
+            do {
+                try kb.writePixels(batch)
+                onSuccess?()
+            } catch {
+                onFailure?(error)
+                return
+            }
+        }
     }
 }

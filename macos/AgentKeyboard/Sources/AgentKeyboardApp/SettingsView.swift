@@ -170,6 +170,9 @@ struct SettingsView: View {
                         Text(AKL("Merges notify.sh into existing agent configs. Does not replace mnemon or memmy hooks."))
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        Text(AKL("Codex skips new hook commands until you trust them in /hooks."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     } header: {
                         Text(AKL("Agent hooks"))
                     }

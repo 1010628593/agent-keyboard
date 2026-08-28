@@ -120,7 +120,7 @@ public enum AsusAuraCatalog {
     }
 }
 
-public protocol KeyboardDriver: AnyObject {
+public protocol KeyboardDriver: AnyObject, Sendable {
     var isOpen: Bool { get }
     var identity: DeviceIdentity { get }
     var lightingMap: LightingMap { get }

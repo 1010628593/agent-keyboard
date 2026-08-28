@@ -105,11 +105,7 @@ public struct LogEntry: Identifiable, Equatable, Sendable {
 
 public enum HookEventMapper {
     public static func status(fromLifecycle event: String) -> AgentStatus? {
-        let key = event.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: " ", with: "_")
-            .replacingOccurrences(of: "-", with: "_")
-        switch key {
+        switch normalizedEvent(event) {
         case "sessionstart", "session_start", "on_session_start",
              "userpromptsubmit", "user_prompt_submit", "beforesubmitprompt",
              "pre_llm_call", "running", "thinking", "afteragentthought":
@@ -131,26 +127,82 @@ public enum HookEventMapper {
         }
     }
 
-    /// Cursor also executes ~/.claude/settings.json hooks. Those must not light Claude.
-    public static func resolvedAgent(declared: String, payload: String) -> String {
-        if payload.contains("cursor_version") {
-            return "cursor"
+    /// Cursor dual-loads ~/.claude/settings.json. Those hooks must not post as Claude
+    /// (or be remapped onto Cursor — Cursor's own hooks.json is the source of truth).
+    public static func shouldReport(declaredAgent: String, payload: String) -> Bool {
+        if isCursorPayload(payload), declaredAgent != "cursor" {
+            return false
         }
-        return declared
+        return true
     }
 
-    public static func status(fromLifecycle event: String, agent: String) -> AgentStatus? {
-        let status = status(fromLifecycle: event)
-        let key = event.trimmingCharacters(in: .whitespacesAndNewlines)
+    public static func isCursorPayload(_ payload: String) -> Bool {
+        payload.contains("\"cursor_version\"") || payload.contains("cursor_version")
+    }
+
+    public static func status(
+        fromLifecycle event: String,
+        agent: String,
+        payload: String = ""
+    ) -> AgentStatus? {
+        let key = normalizedEvent(event)
+        if agent == "cursor" {
+            switch key {
+            case "sessionstart", "session_start":
+                return nil
+            case "afteragentresponse":
+                return .running
+            case "pretooluse", "pre_tool_use":
+                return cursorToolStatus(payload: payload)
+            case "stop":
+                return cursorStopStatus(payload: payload)
+            default:
+                break
+            }
+        }
+        return status(fromLifecycle: event)
+    }
+
+    public static func cursorToolStatus(payload: String) -> AgentStatus {
+        let tool = jsonString(payload, key: "tool_name")
+            ?? jsonString(payload, key: "toolName")
+            ?? ""
+        switch tool {
+        case "Read", "Grep", "Glob", "Ripgrep", "ReadFile", "SemanticSearch":
+            return .running
+        default:
+            return .tool
+        }
+    }
+
+    public static func cursorStopStatus(payload: String) -> AgentStatus {
+        let value = jsonString(payload, key: "status")?.lowercased() ?? ""
+        switch value {
+        case "error", "aborted", "failed":
+            return .error
+        default:
+            return .done
+        }
+    }
+
+    private static func normalizedEvent(_ event: String) -> String {
+        event.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: " ", with: "_")
             .replacingOccurrences(of: "-", with: "_")
-        if agent == "cursor", status == .tool,
-           key == "pretooluse" || key == "pre_tool_use"
-        {
-            return .running
-        }
-        return status
+    }
+
+    private static func jsonString(_ payload: String, key: String) -> String? {
+        let needle = "\"\(key)\""
+        guard let keyRange = payload.range(of: needle) else { return nil }
+        let rest = payload[keyRange.upperBound...]
+        guard let colon = rest.firstIndex(of: ":") else { return nil }
+        let afterColon = rest[rest.index(after: colon)...]
+        guard let startQuote = afterColon.firstIndex(of: "\"") else { return nil }
+        let valueStart = afterColon.index(after: startQuote)
+        guard let endQuote = afterColon[valueStart...].firstIndex(of: "\"") else { return nil }
+        let value = String(afterColon[valueStart..<endQuote])
+        return value.isEmpty ? nil : value
     }
 }
 
@@ -181,6 +233,13 @@ public enum HookInstaller {
 
     public static func notifyScriptURL() -> URL {
         AgentKeyboardConfig.applicationSupportDirectory.appending(path: "notify.sh")
+    }
+
+    /// Codex execs hook commands without a reliable shell. Path must have no spaces
+    /// and no extra argv — event names come from stdin JSON.
+    public static func codexHookURL() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: ".codex/hooks/agent-keyboard.sh")
     }
 
     /// Quoted so paths with spaces (Application Support) survive hook shells.
@@ -245,10 +304,13 @@ public enum HookInstaller {
         let dir = try supportDirectory()
         let notify = dir.appending(path: "notify.sh")
         let status = dir.appending(path: "agent-status.sh")
+        let peek = dir.appending(path: "stdin-peek.py")
         try agentStatusScript.write(to: status, atomically: true, encoding: .utf8)
+        try stdinPeekScript.write(to: peek, atomically: true, encoding: .utf8)
         try notifyScript.write(to: notify, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: notify.path)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: status.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: peek.path)
     }
 
     private static func inspectJSON(
@@ -261,7 +323,17 @@ public enum HookInstaller {
         let exists = FileManager.default.isReadableFile(atPath: url.path)
         var installed = false
         if exists, let text = try? String(contentsOf: url, encoding: .utf8) {
-            installed = text.contains("AgentKeyboard") || text.contains(notify) || text.contains("notify.sh")
+            installed = isAgentKeyboardCommand(text) || text.contains(notify)
+        }
+        let detail: String
+        if !exists {
+            detail = "Config not found"
+        } else if !installed {
+            detail = "Config found, hook not installed"
+        } else if agentID == "codex" {
+            detail = "Hook installed. Trust ~/.codex/hooks/agent-keyboard.sh in Codex /hooks if F1 stays idle."
+        } else {
+            detail = "Hook installed"
         }
         return IntegrationSpec(
             agentID: agentID,
@@ -270,7 +342,7 @@ public enum HookInstaller {
             kind: .jsonHooks,
             available: exists,
             installed: installed,
-            detail: exists ? (installed ? "Hook installed" : "Config found, hook not installed") : "Config not found"
+            detail: detail
         )
     }
 
@@ -346,7 +418,8 @@ public enum HookInstaller {
     }
 
     private static func installCodex() throws -> Bool {
-        try mergeNestedJSONHooks(
+        try writeCodexHookScript()
+        return try mergeNestedJSONHooks(
             url: FileManager.default.homeDirectoryForCurrentUser.appending(path: ".codex/hooks.json"),
             events: [
                 "SessionStart": "running",
@@ -357,7 +430,8 @@ public enum HookInstaller {
                 "PostToolUseFailure": "error",
             ],
             agent: "codex",
-            createIfMissing: true
+            createIfMissing: true,
+            command: codexHookURL().path
         )
     }
 
@@ -380,11 +454,10 @@ public enum HookInstaller {
         try mergeJSONHooks(
             url: FileManager.default.homeDirectoryForCurrentUser.appending(path: ".cursor/hooks.json"),
             events: [
-                "sessionStart": "running",
                 "beforeSubmitPrompt": "running",
                 "afterAgentThought": "running",
-                "preToolUse": "running",
-                "afterAgentResponse": "done",
+                "preToolUse": "tool",
+                "afterAgentResponse": "running",
                 "stop": "done",
                 "postToolUseFailure": "error",
             ],
@@ -527,6 +600,7 @@ public enum HookInstaller {
                 root.removeValue(forKey: key)
             }
         }
+        stripNotifyFromObsoleteEvents(in: &hooks, keeping: Set(events.keys))
         for (event, _) in events {
             var list = hooks[event] as? [[String: Any]] ?? []
             ensureNotifyHook(in: &list, agent: agent, event: event, nested: false)
@@ -545,7 +619,8 @@ public enum HookInstaller {
         url: URL,
         events: [String: String],
         agent: String,
-        createIfMissing: Bool
+        createIfMissing: Bool,
+        command: String? = nil
     ) throws -> Bool {
         let fm = FileManager.default
         if !fm.isReadableFile(atPath: url.path) {
@@ -556,9 +631,10 @@ public enum HookInstaller {
         let data = try Data(contentsOf: url)
         var root = (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
         var hooks = root["hooks"] as? [String: Any] ?? [:]
+        stripNotifyFromObsoleteEvents(in: &hooks, keeping: Set(events.keys))
         for (event, _) in events {
             var list = hooks[event] as? [[String: Any]] ?? []
-            ensureNotifyHook(in: &list, agent: agent, event: event, nested: true)
+            ensureNotifyHook(in: &list, agent: agent, event: event, nested: true, command: command)
             hooks[event] = list
         }
         root["hooks"] = hooks
@@ -567,16 +643,29 @@ public enum HookInstaller {
         return true
     }
 
+    private static func stripNotifyFromObsoleteEvents(in hooks: inout [String: Any], keeping wanted: Set<String>) {
+        for key in Array(hooks.keys) where !wanted.contains(key) {
+            var list = hooks[key] as? [[String: Any]] ?? []
+            list.removeAll { hookEntryNotifies($0) }
+            if list.isEmpty {
+                hooks.removeValue(forKey: key)
+            } else {
+                hooks[key] = list
+            }
+        }
+    }
+
     private static let hookTimeoutSeconds = 2
 
     private static func ensureNotifyHook(
         in list: inout [[String: Any]],
         agent: String,
         event: String,
-        nested: Bool
+        nested: Bool,
+        command: String? = nil
     ) {
         list.removeAll { hookEntryNotifies($0) }
-        let command = notifyInvocation(agent: agent, event: event)
+        let command = command ?? notifyInvocation(agent: agent, event: event)
         if nested {
             list.insert(
                 [
@@ -607,10 +696,51 @@ public enum HookInstaller {
             let nested = entry["hooks"] as? [[String: Any]] ?? []
             return nested.compactMap { $0["command"] as? String }
         }()
-        return commands.contains { command in
-            command.contains("notify.sh") || command.contains("AgentKeyboard")
-        }
+        return commands.contains { isAgentKeyboardCommand($0) }
     }
+
+    static func isAgentKeyboardCommand(_ command: String) -> Bool {
+        command.contains("notify.sh")
+            || command.contains("AgentKeyboard")
+            || command.contains("agent-keyboard")
+    }
+
+    private static func writeCodexHookScript() throws {
+        let url = codexHookURL()
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try codexHookScript.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private static let stdinPeekScript = """
+    import os
+    import select
+    import sys
+    import time
+
+    if sys.stdin.isatty():
+        raise SystemExit
+    ready, _, _ = select.select([sys.stdin], [], [], 0.2)
+    if not ready:
+        raise SystemExit
+    fd = sys.stdin.fileno()
+    os.set_blocking(fd, False)
+    buf = b""
+    deadline = time.time() + 0.2
+    while time.time() < deadline:
+        try:
+            chunk = os.read(fd, 65536)
+        except BlockingIOError:
+            time.sleep(0.02)
+            continue
+        if not chunk:
+            break
+        buf += chunk
+    sys.stdout.buffer.write(buf)
+    """
 
     private static let agentStatusScript = """
     #!/bin/sh
@@ -631,14 +761,37 @@ public enum HookInstaller {
     AGENT=${1:?agent}
     EVENT=${2:-}
     INPUT=""
+    ROOT="$(cd "$(dirname "$0")" && pwd)"
+    extract_json_field() {
+      local key="$1"
+      printf '%s' "$INPUT" | tr '\\n' ' ' | sed -n "s/.*\\\"${key}\\\"[[:space:]]*:[[:space:]]*\\\"\\([^\\\"]*\\)\\\".*/\\1/p"
+    }
     if [ ! -t 0 ]; then
-      INPUT=$(cat)
+      INPUT=$(/usr/bin/python3 "$ROOT/stdin-peek.py" 2>/dev/null || true)
     fi
-    if printf '%s' "$INPUT" | grep -q '"cursor_version"'; then
-      AGENT=cursor
+    # Cursor dual-loads ~/.claude/settings.json. Never post those as Claude,
+    # and never remap them onto Cursor — ~/.cursor/hooks.json owns F4.
+    if [ "$AGENT" != "cursor" ]; then
+      if printf '%s' "$INPUT" | grep -q '"cursor_version"'; then
+        printf '%s\\n' '{}'
+        exit 0
+      fi
+    fi
+    if [ "$AGENT" = "claude" ] && [ -z "$INPUT" ] && [ -z "${CLAUDECODE:-}${CLAUDE_CODE:-}" ]; then
+      printf '%s\\n' '{}'
+      exit 0
     fi
     if [ -z "$EVENT" ] && [ -n "$INPUT" ]; then
-      EVENT=$(printf '%s' "$INPUT" | tr '\\n' ' ' | sed -n 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
+      EVENT=$(extract_json_field "hook_event_name")
+      if [ -z "$EVENT" ]; then
+        EVENT=$(extract_json_field "event_name")
+      fi
+      if [ -z "$EVENT" ]; then
+        EVENT=$(extract_json_field "event")
+      fi
+      if [ -z "$EVENT" ]; then
+        EVENT=$(extract_json_field "name")
+      fi
     fi
     EVENT_KEY=$(printf '%s' "$EVENT" | tr 'A-Z' 'a-z' | tr '-' '_' | tr '.' '_')
     STATUS=running
@@ -658,12 +811,60 @@ public enum HookInstaller {
     esac
     if [ "$AGENT" = "cursor" ]; then
       case "$EVENT_KEY" in
-        pretooluse|pre_tool_use) STATUS=running ;;
+        sessionstart|session_start)
+          printf '%s\\n' '{}'
+          exit 0 ;;
+        afteragentresponse)
+          STATUS=running ;;
+        pretooluse|pre_tool_use)
+          TOOL=$(printf '%s' "$INPUT" | tr '\\n' ' ' | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
+          case "$TOOL" in
+            Read|Grep|Glob|Ripgrep|ReadFile|SemanticSearch) STATUS=running ;;
+            *) STATUS=tool ;;
+          esac
+          ;;
+        stop)
+          STOP_STATUS=$(printf '%s' "$INPUT" | tr '\\n' ' ' | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' | tr 'A-Z' 'a-z')
+          case "$STOP_STATUS" in
+            error|aborted|failed) STATUS=error ;;
+            *) STATUS=done ;;
+          esac
+          ;;
       esac
     fi
-    ROOT="$(cd "$(dirname "$0")" && pwd)"
     "$ROOT/agent-status.sh" "$AGENT" "$STATUS" || true
     printf '%s\\n' '{}'
+    exit 0
+    """
+
+    private static let codexHookScript = """
+    #!/bin/sh
+    # Agent Light Codex hook. Path has no spaces and no extra argv so Codex
+    # can exec it the same way it runs ~/.codex/hooks/mnemon/*.sh.
+    NOTIFY="$HOME/Library/Application Support/AgentKeyboard/notify.sh"
+    EVENT=${1:-}
+    INPUT=""
+    INPUT=$(cat)
+    extract_json_field() {
+      local key="$1"
+      printf '%s' "$INPUT" | tr '\\n' ' ' | sed -n "s/.*\\\"${key}\\\"[[:space:]]*:[[:space:]]*\\\"\\([^\\\"]*\\)\\\".*/\\1/p"
+    }
+    if [ -z "$EVENT" ] && [ -n "$INPUT" ]; then
+      EVENT=$(extract_json_field "hook_event_name")
+      if [ -z "$EVENT" ]; then
+        EVENT=$(extract_json_field "event_name")
+      fi
+      if [ -z "$EVENT" ]; then
+        EVENT=$(extract_json_field "event")
+      fi
+      if [ -z "$EVENT" ]; then
+        EVENT=$(extract_json_field "name")
+      fi
+    fi
+    if [ -z "$EVENT" ]; then
+      exit 0
+    fi
+    printf '%s' "$INPUT" | "$NOTIFY" codex "$EVENT" >/dev/null 2>/dev/null || true
     exit 0
     """
 

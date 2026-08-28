@@ -46,10 +46,32 @@ import Testing
     #expect(HookEventMapper.status(fromLifecycle: "beforeSubmitPrompt") == .running)
     #expect(HookEventMapper.status(fromLifecycle: "afterAgentThought") == .running)
     #expect(HookEventMapper.status(fromLifecycle: "preToolUse") == .tool)
-    #expect(HookEventMapper.status(fromLifecycle: "preToolUse", agent: "cursor") == .running)
+    #expect(HookEventMapper.status(fromLifecycle: "preToolUse", agent: "cursor") == .tool)
     #expect(HookEventMapper.status(fromLifecycle: "preToolUse", agent: "codex") == .tool)
-    #expect(HookEventMapper.resolvedAgent(declared: "claude", payload: #"{"cursor_version":"3.17.21"}"#) == "cursor")
-    #expect(HookEventMapper.resolvedAgent(declared: "claude", payload: "{}") == "claude")
+    #expect(HookEventMapper.status(
+        fromLifecycle: "preToolUse",
+        agent: "cursor",
+        payload: #"{"tool_name":"Read","cursor_version":"3.17.21"}"#
+    ) == .running)
+    #expect(HookEventMapper.status(
+        fromLifecycle: "preToolUse",
+        agent: "cursor",
+        payload: #"{"tool_name":"Shell","cursor_version":"3.17.21"}"#
+    ) == .tool)
+    #expect(HookEventMapper.status(fromLifecycle: "afterAgentResponse", agent: "cursor") == .running)
+    #expect(HookEventMapper.status(fromLifecycle: "afterAgentResponse", agent: "claude") == .done)
+    #expect(HookEventMapper.status(fromLifecycle: "sessionStart", agent: "cursor") == nil)
+    #expect(HookEventMapper.status(
+        fromLifecycle: "stop",
+        agent: "cursor",
+        payload: #"{"status":"aborted"}"#
+    ) == .error)
+    #expect(HookEventMapper.shouldReport(
+        declaredAgent: "claude",
+        payload: #"{"cursor_version":"3.17.21"}"#
+    ) == false)
+    #expect(HookEventMapper.shouldReport(declaredAgent: "cursor", payload: #"{"cursor_version":"3.17.21"}"#) == true)
+    #expect(HookEventMapper.shouldReport(declaredAgent: "claude", payload: "{}") == true)
     #expect(HookEventMapper.status(fromLifecycle: "StopFailure") == .error)
 }
 
@@ -87,6 +109,25 @@ import Testing
     #expect(AgentProfile.catalog.count == 8)
     #expect(AgentProfile.named("hermes")?.provider == "Custom")
     #expect(AgentProfile.named("browser") != nil)
+}
+
+@Test func moveAssignmentShiftsNeighboursDownward() {
+    var dashboard = Dashboard()
+    dashboard.moveAssignment(from: "f1", to: "f3")
+    #expect(dashboard.slots.map(\.spec.agentID) == ["claude", "hermes", "codex", "cursor", "pi", "workbuddy"])
+}
+
+@Test func moveAssignmentCarriesLiveStateToTheNewKey() throws {
+    var dashboard = Dashboard()
+    try dashboard.apply(AgentEvent(agent: "workbuddy", status: .running, context: 0.4), now: 3)
+    dashboard.moveAssignment(from: "f6", to: "f1")
+    #expect(dashboard.slots[0].spec.agentID == "workbuddy")
+    #expect(dashboard.slots[0].spec.keyName == "F1")
+    #expect(dashboard.slots[0].status == .running)
+    #expect(dashboard.slots[0].context == 0.4)
+    #expect(dashboard.slots[1].spec.agentID == "codex")
+    #expect(dashboard.slots[5].spec.agentID == "pi")
+    #expect(dashboard.resolve("workbuddy")?.spec.slot == "f1")
 }
 
 @Test func assignMovesAgentBetweenSlots() {

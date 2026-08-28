@@ -50,23 +50,26 @@ struct KeyboardPreview: View {
 struct MousePreview: View {
     var active: Bool
     var showCaption = true
+    /// Overall capsule height. All inner metrics derive from it so the view
+    /// never overflows a fixed-height container (cards use ~38, inspector ~64).
+    var height: CGFloat = 88
 
     var body: some View {
         VStack(spacing: 8) {
             Capsule()
                 .fill(AKTheme.keyIdle)
-                .frame(width: 44, height: 88)
+                .frame(width: height / 2, height: height)
                 .overlay {
-                    VStack(spacing: 10) {
+                    VStack(spacing: height * 0.11) {
                         Circle()
                             .fill(active ? AKTheme.accent : AKTheme.keyIdle)
-                            .frame(width: 10, height: 10)
+                            .frame(width: height * 0.11, height: height * 0.11)
                             .shadow(color: active ? AKTheme.accent.opacity(0.8) : .clear, radius: 6)
                         Capsule()
                             .fill(active ? AKTheme.accent.opacity(0.7) : Color.primary.opacity(0.12))
-                            .frame(width: 18, height: 6)
+                            .frame(width: height * 0.2, height: height * 0.07)
                     }
-                    .padding(.top, 14)
+                    .padding(.top, height * 0.16)
                 }
             if showCaption {
                 Text(AKL("Wheel"))

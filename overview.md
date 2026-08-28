@@ -1,6 +1,6 @@
 # AgentKeyboard UI 优化与交互 Bug 修复报告
 
-日期：2026-08-29
+日期：2026-08-29（含状态延迟修复）
 
 ## 一、Workbuddy hook 安装失败 —— 根因与修复（已验证）
 
@@ -72,3 +72,38 @@
 
 - 在 Xcode 中完整构建一次并实际运行，确认 Workbuddy 钩子在真实会话中点亮 F6
 - 考虑为槽位卡片补充拖拽排序（当前为按钮移动）
+
+---
+
+## 六、状态获取延迟修复（追加）
+
+### 根因 1（主要）：`notify.sh` 阻塞导致事件丢失
+
+`INPUT=$(cat)` 在部分 hook 运行器（WorkBuddy/Cursor 等不主动关闭 stdin）下会一直等
+EOF 而无限阻塞 → 钩子在 2 秒超时被杀 → **状态事件整个丢失**，表现为状态卡住不动
+（要等 120 秒看门狗才复位）。
+
+**修复**（`Config.swift` 的 notifyScript）：改为有界读取——`cat` 后台运行 + 250ms
+watchdog 超时 kill + `wait`。A/B 实测：旧写法在 stdin 持开时阻塞满 3 秒，新写法立即
+返回且事件正常送达。
+
+### 根因 2（次要）：HID 写入阻塞主线程
+
+每帧 8 个 USB 报文在 MainActor 上同步写（32fps），事件应用和 UI 交互都要排队等 I/O。
+
+**修复**（`AppModel.swift` + `Vendor.swift`）：
+- 新增 `HIDWriterBox`：后台串行队列 + 最新帧合并（不积压）+ NSLock 保护，
+  `writePixels` 变为非阻塞
+- `KeyboardDriver` 协议补 `Sendable`
+
+### 验证
+
+- 三种 stdin 场景（立即关闭 / 永不关闭 / 无 stdin）事件全部送达，均不阻塞
+- `swift-frontend -typecheck` 0 错误；完整 `swift build` 成功
+- 应用重启后 frames 稳定 ~32fps，真实键盘连接正常，事件桥健康
+
+### 新增/修改文件（本阶段）
+
+- `macos/AgentKeyboard/Sources/AgentKeyboardCore/Config.swift` — notify.sh 有界读取
+- `macos/AgentKeyboard/Sources/AgentKeyboardCore/Vendor.swift` — KeyboardDriver 加 Sendable
+- `macos/AgentKeyboard/Sources/AgentKeyboardApp/AppModel.swift` — HIDWriterBox 后台写入

@@ -79,6 +79,62 @@ import Testing
     #expect((firstNested?.first?["timeout"] as? NSNumber)?.intValue == 2)
 }
 
+@Test func mergeNestedJSONHooksUsesBareCodexCommand() throws {
+    let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let url = dir.appending(path: "hooks.json")
+    try #"{"hooks":{}}"#.write(to: url, atomically: true, encoding: .utf8)
+    let wrapper = dir.appending(path: "agent-keyboard.sh").path
+    _ = try HookInstaller.mergeNestedJSONHooks(
+        url: url,
+        events: ["UserPromptSubmit": "running", "PreToolUse": "tool"],
+        agent: "codex",
+        createIfMissing: false,
+        command: wrapper
+    )
+    let root = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+    let hooks = root?["hooks"] as? [String: Any]
+    let prompts = hooks?["UserPromptSubmit"] as? [[String: Any]] ?? []
+    let firstNested = prompts.first?["hooks"] as? [[String: Any]]
+    #expect(firstNested?.first?["command"] as? String == wrapper)
+    let tools = hooks?["PreToolUse"] as? [[String: Any]] ?? []
+    let toolNested = tools.first?["hooks"] as? [[String: Any]]
+    #expect(toolNested?.first?["command"] as? String == wrapper)
+}
+
+@Test func mergeJSONHooksStripsObsoleteNotifyEvents() throws {
+    let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let url = dir.appending(path: "hooks.json")
+    try """
+    {
+      "version": 1,
+      "hooks": {
+        "sessionStart": [
+          { "command": "'/tmp/Application Support/AgentKeyboard/notify.sh' cursor sessionStart", "timeout": 2 }
+        ],
+        "stop": [
+          { "command": "memmy-resume-hook.mjs", "timeout": 60 }
+        ]
+      }
+    }
+    """.write(to: url, atomically: true, encoding: .utf8)
+    _ = try HookInstaller.mergeJSONHooks(
+        url: url,
+        events: ["stop": "done"],
+        agent: "cursor",
+        createIfMissing: false
+    )
+    let root = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+    let hooks = root?["hooks"] as? [String: Any]
+    #expect(hooks?["sessionStart"] == nil)
+    let stops = hooks?["stop"] as? [[String: Any]] ?? []
+    #expect((stops.first?["command"] as? String)?.contains("notify.sh") == true)
+    #expect((stops.dropFirst().first?["command"] as? String)?.contains("memmy") == true)
+}
+
 @Test func mergeNestedJSONHooksPreservesUnrelatedWorkbuddySettings() throws {
     let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

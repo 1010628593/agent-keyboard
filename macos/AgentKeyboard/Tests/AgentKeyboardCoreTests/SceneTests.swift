@@ -1,4 +1,5 @@
 import AgentKeyboardCore
+import Foundation
 import Testing
 
 @Test func idleFKeysAreOff() {
@@ -206,4 +207,115 @@ import Testing
     )
     let q = KeyboardProfile.scopeII.index(named: "Q")
     #expect(after[q].luminance > during[q].luminance)
+}
+
+private func canvasPixels(
+    effect: LightingEffect,
+    now: TimeInterval,
+    color: RGB = RGB(40, 90, 255)
+) -> [RGB] {
+    let pin = StateLook(effect: effect, color: color, brightness: 1, speed: 1)
+    return SceneRenderer.renderBoard(
+        Dashboard(),
+        looks: AgentLookBook.seeded(),
+        now: now,
+        pinnedCanvas: pin
+    )
+}
+
+@Test func rgbHueMapsPrimaries() {
+    #expect(abs(RGB(255, 0, 0).hue - 0) < 0.01)
+    #expect(abs(RGB(0, 255, 0).hue - 1.0 / 3.0) < 0.01)
+    #expect(abs(RGB(0, 0, 255).hue - 2.0 / 3.0) < 0.01)
+}
+
+@Test func cometSweepsBrightHeadOverDimBase() {
+    let pixels = canvasPixels(effect: .comet, now: 2.0)
+    let canvas = LightingMap.scopeII.canvasNames
+    let lums = canvas.map { name in
+        pixels[KeyboardProfile.scopeII.index(named: name)].luminance
+    }
+    let lo = lums.min() ?? 0
+    let hi = lums.max() ?? 0
+    #expect(lo > 0)
+    #expect(hi > lo * 2)
+}
+
+@Test func scannerBouncesFromLeftToRight() {
+    let left = KeyboardProfile.scopeII.index(named: "BACK_TICK")
+    let right = KeyboardProfile.scopeII.index(named: "NUMPAD_MINUS")
+    let atStart = canvasPixels(effect: .scanner, now: 0.01)
+    #expect(atStart[left].luminance > atStart[right].luminance * 2)
+    let atEnd = canvasPixels(effect: .scanner, now: 2.0)
+    #expect(atEnd[right].luminance > atEnd[left].luminance * 2)
+}
+
+@Test func rippleStartsBrightAtCenter() {
+    let pixels = canvasPixels(effect: .ripple, now: 0.1)
+    let center = pixels[KeyboardProfile.scopeII.index(named: "P")]
+    let corner = pixels[KeyboardProfile.scopeII.index(named: "ESCAPE")]
+    #expect(center.luminance > corner.luminance * 2)
+}
+
+@Test func heartbeatPumpsTwicePerCycle() {
+    let key = KeyboardProfile.scopeII.index(named: "A")
+    let first = canvasPixels(effect: .heartbeat, now: 0.02)[key].luminance
+    let dip = canvasPixels(effect: .heartbeat, now: 0.13)[key].luminance
+    let second = canvasPixels(effect: .heartbeat, now: 0.26)[key].luminance
+    #expect(first > dip)
+    #expect(second > dip)
+}
+
+@Test func sparkleTwinklesPerKey() {
+    let pixels = canvasPixels(effect: .sparkle, now: 1.3)
+    let canvas = LightingMap.scopeII.canvasNames
+    let lums = canvas.map { name in
+        pixels[KeyboardProfile.scopeII.index(named: name)].luminance
+    }
+    #expect((lums.min() ?? 0) > 0)
+    #expect((lums.max() ?? 0) > (lums.min() ?? 0))
+}
+
+@Test func meteorShowerKeepsFloorAndShowsHeads() {
+    let pixels = canvasPixels(effect: .meteor, now: 1.1)
+    let canvas = LightingMap.scopeII.canvasNames
+    let lums = canvas.map { name in
+        pixels[KeyboardProfile.scopeII.index(named: name)].luminance
+    }
+    let lo = lums.min() ?? 0
+    let hi = lums.max() ?? 0
+    #expect(lo > 0)
+    #expect(hi > lo * 2)
+}
+
+@Test func flowHasDriftingCrests() {
+    let pixels = canvasPixels(effect: .flow, now: 0.9)
+    let canvas = LightingMap.scopeII.canvasNames
+    let lums = canvas.map { name in
+        pixels[KeyboardProfile.scopeII.index(named: name)].luminance
+    }
+    #expect((lums.max() ?? 0) > (lums.min() ?? 0))
+}
+
+@Test func rainFallsInColumns() {
+    let pixels = canvasPixels(effect: .rain, now: 0.7)
+    let canvas = LightingMap.scopeII.canvasNames
+    let lums = canvas.map { name in
+        pixels[KeyboardProfile.scopeII.index(named: name)].luminance
+    }
+    let lo = lums.min() ?? 0
+    #expect(lo > 0)
+    #expect((lums.max() ?? 0) > lo)
+}
+
+@Test func spatialEffectFallsBackToBreathingOnSingleKey() {
+    var dashboard = Dashboard()
+    try? dashboard.apply(AgentEvent(agent: "codex", status: .running), now: 0)
+    let pixels = SceneRenderer.renderBoard(
+        dashboard,
+        looks: AgentLookBook.seeded(),
+        now: AK.glyphHoldSeconds + 0.2
+    )
+    let f1 = pixels[KeyboardProfile.scopeII.index(named: "F1")]
+    #expect(f1.luminance > 20)
 }

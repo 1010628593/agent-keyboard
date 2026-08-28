@@ -4,8 +4,18 @@ public enum LightingEffect: String, CaseIterable, Sendable, Equatable, Identifia
     case staticFill = "static"
     case breathing
     case wave
-    case reactive
+    case ripple
+    case comet
+    case meteor
+    case flow
+    case rain
+    case scanner
+    case sparkle
+    case aurora
+    case gradient
     case rainbow
+    case heartbeat
+    case reactive
     case off
 
     public var id: String { rawValue }
@@ -15,8 +25,18 @@ public enum LightingEffect: String, CaseIterable, Sendable, Equatable, Identifia
         case .staticFill: "Static"
         case .breathing: "Breathing"
         case .wave: "Wave"
-        case .reactive: "Reactive"
+        case .ripple: "Ripple"
+        case .comet: "Comet"
+        case .meteor: "Meteor"
+        case .flow: "Flow"
+        case .rain: "Rain"
+        case .scanner: "Scanner"
+        case .sparkle: "Sparkle"
+        case .aurora: "Aurora"
+        case .gradient: "Gradient"
         case .rainbow: "Rainbow"
+        case .heartbeat: "Heartbeat"
+        case .reactive: "Reactive"
         case .off: "Off"
         }
     }
@@ -26,9 +46,28 @@ public enum LightingEffect: String, CaseIterable, Sendable, Equatable, Identifia
         case .staticFill: "circle.fill"
         case .breathing: "water.waves"
         case .wave: "waveform.path"
-        case .reactive: "sun.max"
+        case .ripple: "dot.radiowaves.right"
+        case .comet: "sparkle"
+        case .meteor: "sparkles"
+        case .flow: "humidity.fill"
+        case .rain: "cloud.rain.fill"
+        case .scanner: "dot.scope"
+        case .sparkle: "moon.stars.fill"
+        case .aurora: "rays"
+        case .gradient: "paintpalette.fill"
         case .rainbow: "rainbow"
+        case .heartbeat: "waveform.path.ecg"
+        case .reactive: "sun.max"
         case .off: "circle.slash"
+        }
+    }
+
+    /// Spatial effects need a multi-key span to read correctly; on a single-key
+    /// zone (e.g. an F1–F6 identity lamp) they fall back to breathing.
+    public var needsSpatialSpan: Bool {
+        switch self {
+        case .wave, .ripple, .comet, .meteor, .flow, .rain, .scanner, .aurora, .gradient, .rainbow: true
+        case .staticFill, .breathing, .sparkle, .heartbeat, .reactive, .off: false
         }
     }
 }
@@ -65,9 +104,9 @@ public struct StateLook: Equatable, Sendable {
 
     public static let defaults: [AgentStatus: StateLook] = [
         .idle: .init(effect: .staticFill, color: RGB(40, 90, 255), brightness: 0.35, speed: 1),
-        .running: .init(effect: .breathing, color: RGB(139, 92, 246), brightness: 0.7, speed: 1.2),
-        .tool: .init(effect: .wave, color: RGB(245, 158, 11), brightness: 0.7, speed: 1.4),
-        .approval: .init(effect: .breathing, color: RGB(20, 184, 166), brightness: 0.75, speed: 1.5),
+        .running: .init(effect: .comet, color: RGB(139, 92, 246), brightness: 0.72, speed: 1.1),
+        .tool: .init(effect: .ripple, color: RGB(245, 158, 11), brightness: 0.72, speed: 1.3),
+        .approval: .init(effect: .heartbeat, color: RGB(20, 184, 166), brightness: 0.78, speed: 1),
         .done: .init(effect: .staticFill, color: RGB(16, 185, 129), brightness: 0.8, speed: 1),
         .error: .init(effect: .reactive, color: RGB(239, 68, 68), brightness: 0.9, speed: 2),
     ]
@@ -133,9 +172,9 @@ public enum AgentLookBook {
         let ink = signature(for: agentID)
         return [
             .idle: .init(effect: .staticFill, color: ink, brightness: 0.28, speed: 1),
-            .running: .init(effect: .breathing, color: ink, brightness: 0.75, speed: 1.2),
-            .tool: .init(effect: .wave, color: ink, brightness: 0.72, speed: 1.4),
-            .approval: .init(effect: .breathing, color: ink, brightness: 0.8, speed: 1.5),
+            .running: .init(effect: .comet, color: ink, brightness: 0.75, speed: 1.1),
+            .tool: .init(effect: .ripple, color: ink, brightness: 0.72, speed: 1.3),
+            .approval: .init(effect: .heartbeat, color: ink, brightness: 0.8, speed: 1),
             .done: .init(effect: .staticFill, color: RGB(16, 185, 129), brightness: 0.8, speed: 1),
             .error: .init(effect: .reactive, color: RGB(239, 68, 68), brightness: 0.9, speed: 2),
         ]

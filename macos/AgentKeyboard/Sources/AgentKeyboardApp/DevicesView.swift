@@ -4,6 +4,9 @@ import SwiftUI
 struct DevicesView: View {
     @Environment(AppModel.self) private var model
 
+    private var connected: [PeripheralSnapshot] { model.peripherals.filter(\.connected) }
+    private var unavailable: [PeripheralSnapshot] { model.peripherals.filter { !$0.connected } }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -18,16 +21,45 @@ struct DevicesView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 }
-                Text(AKL("Connected (\(model.connectedCount))"))
-                    .font(.headline)
-                ForEach(model.peripherals) { device in
-                    DeviceCard(device: device)
+                deviceSection(
+                    title: AKL("Connected (\(connected.count))"),
+                    devices: connected,
+                    emptyText: AKL("No connected devices")
+                )
+                if !unavailable.isEmpty {
+                    deviceSection(
+                        title: AKL("Unavailable (\(unavailable.count))"),
+                        devices: unavailable,
+                        emptyText: nil
+                    )
                 }
             }
             .padding(24)
         }
         .background(AKTheme.canvas)
         .onAppear { model.refreshDevices() }
+    }
+
+    private func deviceSection(
+        title: LocalizedStringResource,
+        devices: [PeripheralSnapshot],
+        emptyText: LocalizedStringResource?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.headline)
+            if devices.isEmpty, let emptyText {
+                Text(emptyText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+                    .background(AKTheme.card, in: .rect(cornerRadius: AKTheme.radiusL))
+            }
+            ForEach(devices) { device in
+                DeviceCard(device: device)
+            }
+        }
     }
 }
 
@@ -42,7 +74,7 @@ struct DeviceCard: View {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: device.kind.symbol)
                     .font(.title)
-                    .foregroundStyle(AKTheme.accent)
+                    .foregroundStyle(device.connected ? AKTheme.accent : Color.secondary)
                     .frame(width: 48, height: 48)
                     .background(AKTheme.inset, in: .rect(cornerRadius: 10))
                 VStack(alignment: .leading, spacing: 6) {
@@ -50,10 +82,11 @@ struct DeviceCard: View {
                         .font(.headline)
                     HStack(spacing: 8) {
                         Circle()
-                            .fill(device.connected ? AKTheme.success : .secondary)
+                            .fill(device.connected ? AKTheme.success : Color.secondary)
                             .frame(width: 7, height: 7)
                         Text(device.connected ? AKL("Connected") : AKL("Unavailable"))
                             .font(.caption)
+                            .foregroundStyle(device.connected ? .primary : .secondary)
                         Label {
                             Text(verbatim: device.kind.connection)
                         } icon: {
@@ -62,7 +95,7 @@ struct DeviceCard: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     }
-                    ZoneSchematic(kind: device.kind)
+                    ZoneSchematic(kind: device.kind, active: device.connected, previewHeight: 38)
                         .frame(height: 44)
                 }
                 Spacer()
@@ -78,6 +111,7 @@ struct DeviceCard: View {
             }
             .padding(14)
             .background(AKTheme.card, in: .rect(cornerRadius: AKTheme.radiusL))
+            .opacity(device.connected ? 1 : 0.6)
             .akSelected(model.selectedPeripheral == device.kind)
         }
         .buttonStyle(.plain)
@@ -88,6 +122,10 @@ struct DeviceCard: View {
 
 struct ZoneSchematic: View {
     var kind: PeripheralKind
+    var active: Bool = false
+    /// Height budget for the mouse capsule; ignored by the keyboard canvas,
+    /// which scales via its aspect ratio.
+    var previewHeight: CGFloat = 64
 
     var body: some View {
         Group {
@@ -102,7 +140,8 @@ struct ZoneSchematic: View {
                     highlight: Set(LightingMap.scopeII.agentKeys)
                 )
             } else {
-                MousePreview(active: false, showCaption: false)
+                MousePreview(active: active, showCaption: false, height: previewHeight)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .allowsHitTesting(false)
