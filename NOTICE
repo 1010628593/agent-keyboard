@@ -1,0 +1,19 @@
+agent-keyboard
+Copyright (C) 2026
+
+This program reimplements the ASUS Aura TUF keyboard HID Direct protocol
+for the ROG Strix Scope II RX / NX. The protocol bytes, 15-LED packet
+framing, and 107-LED key-id table were documented by:
+
+  OpenRGB  AsusAuraTUFKeyboardController  (GPL-2.0-or-later)
+  https://gitlab.com/CalcProgrammer1/OpenRGB
+
+  RSS_II_RGB  (GPL-3.0)
+  https://github.com/bbfox0703/RSS_II_RGB
+
+Those projects remain the protocol references. This tree is a Mac-native
+Agent status dashboard that talks to the same HID control collection
+(usage page 0xFF00, interface 1) via hidapi / IOKit.
+
+This program is free software under the GNU General Public License v3.
+See LICENSE.

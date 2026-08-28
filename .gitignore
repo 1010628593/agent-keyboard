@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+.build/
+.workbuddy/
+.DS_Store
+vendor/RSS_II_RGB/
+vendor/openrgb-tuf/
+*.sock
+macos/AgentKeyboard/.build/
+macos/AgentKeyboard/.swiftpm/

@@ -1,0 +1,37 @@
+[project]
+name = "agent-keyboard"
+version = "0.1.0"
+description = "Drive a ROG Strix Scope II RX as a 107-pixel Agent status dashboard on macOS."
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.11"
+authors = [{ name = "hanxin" }]
+dependencies = []
+
+[project.optional-dependencies]
+hid = ["hid"]
+dev = ["pytest>=8.0", "hid"]
+
+[project.scripts]
+agent-keyboard = "agent_keyboard.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_keyboard"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/agent_keyboard", "config", "hooks", "examples", "NOTICE", "LICENSE", "README.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

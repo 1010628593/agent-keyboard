@@ -1,0 +1,11 @@
+# WorkBuddy — paste into ~/.workbuddy/settings.json under "hooks"
+# (older CodeBuddy builds: ~/.codebuddy/settings.json). The app installer
+# detects both paths automatically. Merge; do not delete existing entries.
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "~/Library/Application Support/AgentKeyboard/notify.sh workbuddy SessionStart" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "~/Library/Application Support/AgentKeyboard/notify.sh workbuddy UserPromptSubmit" }] }],
+    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "~/Library/Application Support/AgentKeyboard/notify.sh workbuddy PreToolUse" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "~/Library/Application Support/AgentKeyboard/notify.sh workbuddy Stop" }] }]
+  }
+}

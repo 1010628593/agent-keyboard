@@ -1,0 +1,49 @@
+# Agent Keyboard dashboard mapping.
+# F1–F6 are the six Agent slots. Everything else stays dim unless a
+# global signal (Esc / Enter / Space / arrows / numpad) needs it.
+
+[bridge]
+host = "127.0.0.1"
+port = 7420
+
+[render]
+fps = 32
+style = "dashboard"   # dashboard | cinematic
+idle_white = 0.05
+idle_timeout = 120
+
+[[agents]]
+slot = "f1"
+id = "codex"
+name = "Codex"
+key = "F1"
+
+[[agents]]
+slot = "f2"
+id = "claude"
+name = "Claude Code"
+key = "F2"
+
+[[agents]]
+slot = "f3"
+id = "hermes"
+name = "Hermes"
+key = "F3"
+
+[[agents]]
+slot = "f4"
+id = "cursor"
+name = "Cursor"
+key = "F4"
+
+[[agents]]
+slot = "f5"
+id = "pi"
+name = "Pi"
+key = "F5"
+
+[[agents]]
+slot = "f6"
+id = "workbuddy"
+name = "Workbuddy"
+key = "F6"

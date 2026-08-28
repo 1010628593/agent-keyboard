@@ -1,0 +1,9 @@
+# Copy into a pi-yaml-hooks config, or ~/.pi/autohooks.
+# Does not replace existing Pi packages.
+hooks:
+  user.prompt.submit:
+    - bash: "~/Library/Application Support/AgentKeyboard/notify.sh pi UserPromptSubmit"
+  tool.before.*:
+    - bash: "~/Library/Application Support/AgentKeyboard/notify.sh pi PreToolUse"
+  session.idle:
+    - bash: "~/Library/Application Support/AgentKeyboard/notify.sh pi Stop"
