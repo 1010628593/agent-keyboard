@@ -77,8 +77,10 @@ struct SidebarView: View {
                         if model.sidebar == item {
                             RoundedRectangle(cornerRadius: 12)
                                 .strokeBorder(AKTheme.accent.opacity(0.8), lineWidth: 1)
+                                .allowsHitTesting(false)
                         }
                     }
+                    .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
                 .animation(.snappy, value: model.sidebar)
@@ -106,6 +108,7 @@ struct SidebarView: View {
             Rectangle()
                 .fill(AKTheme.cardBorder)
                 .frame(width: 1)
+                .allowsHitTesting(false)
         }
     }
 }
