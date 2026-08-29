@@ -7,8 +7,8 @@ struct LightingView: View {
     private let effectColumns = [GridItem(.adaptive(minimum: 96), spacing: 10)]
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(AKL("Lighting"))
                         .font(.largeTitle.weight(.semibold))
@@ -17,20 +17,30 @@ struct LightingView: View {
                         .foregroundStyle(.secondary)
                 }
                 LightingStage()
-                stepHeader(1, AKL("Select Device"))
-                HStack(spacing: 10) {
-                    ForEach(PeripheralKind.allCases) { kind in
-                        DevicePickButton(kind: kind)
-                    }
-                }
-                stepHeader(2, AKL("Select Effect"))
-                LazyVGrid(columns: effectColumns, spacing: 10) {
-                    ForEach(LightingEffect.allCases) { effect in
-                        EffectPickButton(effect: effect)
-                    }
-                }
             }
-            .padding(24)
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+            .padding(.bottom, 12)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    stepHeader(1, AKL("Select Device"))
+                    HStack(spacing: 10) {
+                        ForEach(PeripheralKind.allCases) { kind in
+                            DevicePickButton(kind: kind)
+                        }
+                    }
+                    stepHeader(2, AKL("Select Effect"))
+                    LazyVGrid(columns: effectColumns, spacing: 10) {
+                        ForEach(LightingEffect.allCases) { effect in
+                            EffectPickButton(effect: effect)
+                        }
+                    }
+                }
+                .padding(24)
+            }
         }
         .background(AKTheme.canvas)
     }
@@ -118,6 +128,7 @@ struct EffectPickButton: View {
             .akSelected(model.look(for: model.lightingState).effect == effect, radius: 10)
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(model.look(for: model.lightingState).effect == effect ? .isSelected : [])
     }
 }
 

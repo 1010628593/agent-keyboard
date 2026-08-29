@@ -158,6 +158,131 @@ struct SettingsView: View {
             Tab {
                 Form {
                     Section {
+                        LabeledContent {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(model.bridgeListening ? AKTheme.success : AKTheme.danger)
+                                    .frame(width: 7, height: 7)
+                                Text(model.bridgeListening ? AKL("Listening") : AKL("Not listening"))
+                            }
+                        } label: {
+                            Text(AKL("Service"))
+                        }
+                        LabeledContent {
+                            HStack(spacing: 8) {
+                                Text(verbatim: model.mcpEndpoint)
+                                    .font(.caption.monospaced())
+                                    .textSelection(.enabled)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Button {
+                                    model.copyMCPEndpoint()
+                                } label: {
+                                    Text(model.mcpCopied == .endpoint ? AKL("Copied") : AKL("Copy"))
+                                }
+                            }
+                        } label: {
+                            Text(AKL("Endpoint"))
+                        }
+                        LabeledContent {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(model.mcpOverlayActive ? AKTheme.accent : .secondary)
+                                    .frame(width: 7, height: 7)
+                                if model.mcpOverlayActive {
+                                    Text(verbatim: String(format: "%.1fs", model.mcpOverlayRemaining))
+                                        .font(.callout.monospacedDigit())
+                                } else {
+                                    Text(AKL("Cookbook"))
+                                }
+                            }
+                        } label: {
+                            Text(AKL("Overlay"))
+                        }
+                    } header: {
+                        Text(AKL("MCP service"))
+                    } footer: {
+                        Text(AKL("The MCP server shares 127.0.0.1:7420 with the HTTP bridge. Open Agent Light first, then connect Cursor."))
+                    }
+
+                    Section {
+                        LabeledContent {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(model.mcpConfig.installed ? AKTheme.success : AKTheme.warning)
+                                    .frame(width: 7, height: 7)
+                                Text(model.mcpConfig.installed ? AKL("Configured") : AKL("Not configured"))
+                            }
+                        } label: {
+                            Text(AKL("Cursor mcp.json"))
+                        }
+                        Text(verbatim: model.mcpConfig.configPath)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(2)
+                        Text(verbatim: model.mcpConfig.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button {
+                            model.installCursorMCP()
+                        } label: {
+                            Text(model.mcpConfig.installed ? AKL("Reinstall Cursor MCP") : AKL("Install Cursor MCP"))
+                        }
+                    } header: {
+                        Text(AKL("One-click setup"))
+                    } footer: {
+                        Text(AKL("Writes the endpoint into ~/.cursor/mcp.json without removing other MCP servers. Enable agent-keyboard in Cursor Settings → MCP, then allow the tools."))
+                    }
+
+                    Section {
+                        Text(AKL("MCP lighting is a per-key pixel layer. It does not use Wave, Comet, or other cookbook effects. The agent names keys, colors, duration, and brightness."))
+                            .font(.callout)
+                        Text(AKL("duration is required and maxes out at 15 seconds. brightness is 0–1 and scales every key in the lease. Per-key colors may also include their own brightness."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(AKL("keyboard_keys holds a still. keyboard_frames loops or plays a segmented story. When the lease ends, cookbook lighting resumes. Hooks still drive F1–F6 identity independently."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } header: {
+                        Text(AKL("How it works"))
+                    }
+
+                    Section {
+                        Text(verbatim: MCPService.setupPrompt)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        HStack {
+                            Button {
+                                model.copyMCPSetupPrompt()
+                            } label: {
+                                Text(model.mcpCopied == .prompt ? AKL("Copied") : AKL("Copy setup prompt"))
+                            }
+                            Button {
+                                model.copyMCPJSON()
+                            } label: {
+                                Text(model.mcpCopied == .json ? AKL("Copied") : AKL("Copy mcp.json"))
+                            }
+                        }
+                    } header: {
+                        Text(AKL("Configuration prompt"))
+                    } footer: {
+                        Text(AKL("Paste the prompt into a Cursor chat after installing, or share it with another agent so it connects itself."))
+                    }
+                }
+                .formStyle(.grouped)
+                .onAppear { model.refreshIntegrations() }
+            } label: {
+                Label {
+                    Text(AKL("MCP"))
+                } icon: {
+                    Image(systemName: "cable.connector")
+                }
+            }
+
+            Tab {
+                Form {
+                    Section {
                         ForEach(model.integrations) { spec in
                             HookRow(spec: spec)
                         }
@@ -226,7 +351,7 @@ struct HookRow: View {
                 Text(verbatim: spec.name)
                     .font(.callout.weight(.medium))
                 Spacer()
-                Text(spec.installed ? AKL("Hook ready") : (spec.available ? AKL("Not installed") : AKL("Unavailable")))
+                Text(statusLabel)
                     .font(.caption)
                     .foregroundStyle(statusColor)
                 Button {
@@ -246,6 +371,14 @@ struct HookRow: View {
                 .truncationMode(.middle)
         }
         .padding(.vertical, 2)
+    }
+
+    private var statusLabel: LocalizedStringResource {
+        if spec.kind == .cursorMCP {
+            return spec.installed ? AKL("Configured") : AKL("Not configured")
+        }
+        if spec.installed { return AKL("Hook ready") }
+        return spec.available ? AKL("Not installed") : AKL("Unavailable")
     }
 
     private var statusColor: Color {

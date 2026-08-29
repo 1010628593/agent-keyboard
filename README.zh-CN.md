@@ -147,6 +147,22 @@ POST http://127.0.0.1:7420/event
 
 `status` 接受：`idle`、`running` / `thinking`、`tool` / `tool_calling`、`approval`、`done` / `completed`、`error`。
 
+## MCP（智能体逐键控灯）
+
+Agent Light 在 `http://127.0.0.1:7420/mcp` 提供像素层。**不走** cookbook 灯效（Wave / Comet 等）。智能体自己指定键名、颜色、必填的 `duration`（最长 15 秒）和 `brightness`（0–1）。租约结束即交还 cookbook。
+
+| 工具 | 作用 |
+| --- | --- |
+| `keyboard_layout` | 107 键名称、行列、别名 |
+| `keyboard_keys` | 静帧。必须传 `duration` 和 `brightness`。 |
+| `keyboard_frames` | 时间轴：`loop: true` 循环；默认分段叙事。`frames`+`fps` 或带 `at` 的 `cues`。 |
+| `keyboard_state` | 设备 + 剩余租约 |
+| `keyboard_release` | 提前结束租约 |
+
+HTTP：`GET /lighting/layout`、`POST /lighting/keys`、`POST /lighting/frames`、`POST /lighting/release`。stdio：`python -m agent_keyboard mcp`。
+
+用本仓库 `.cursor/mcp.json` 连接 Cursor，或在设置 → MCP → **安装 Cursor MCP** 合并 `~/.cursor/mcp.json`。该页可复制配置提示词。应用必须在听 `:7420`。启用 `agent-keyboard` 并允许工具。
+
 ## Swift 应用（macOS 15+）
 
 同一套仪表盘也在 `macos/AgentKeyboard` 里，是原生 SwiftUI 应用：IOKit HID、32 FPS 预览、oMLX 风格侧栏（Dashboard / Agents / Lighting / Bridge / Devices / Logs）、菜单栏图标、设置，以及同样的 HTTP 约定 `127.0.0.1:7420`。驱动按厂商可插拔；本构建只实现 **ASUS / ROG Aura Direct**（Scope II RX/NX 已映射；其它 TUF/ROG 列为未映射）。Aura 集合同一时刻只能被一个进程占用——启动应用前先停掉 `python -m agent_keyboard serve`。

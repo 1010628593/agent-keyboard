@@ -57,6 +57,12 @@ def main(argv: list[str] | None = None) -> int:
 
     idle_p = sub.add_parser("idle", help="force all slots idle and paint once")
     idle_p.add_argument("--simulate", action="store_true")
+    mcp_p = sub.add_parser("mcp", help="stdio MCP server (talks to the HTTP bridge)")
+    mcp_p.add_argument(
+        "--url",
+        default=None,
+        help="bridge base URL, default http://127.0.0.1:7420",
+    )
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -86,6 +92,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.cmd == "idle":
         return cmd_idle(cfg, simulate=getattr(args, "simulate", False))
+    if args.cmd == "mcp":
+        from .mcp import serve_stdio
+
+        return serve_stdio(args.url)
     return 1
 
 
@@ -157,7 +167,7 @@ def cmd_serve(cfg, host: str, port: int, simulate: bool, preview: bool) -> int:
     print(f"style={cfg.style.value}  fps={cfg.fps}  simulate={isinstance(engine.device, NullDevice)}")
     if cfg.path:
         print(f"config={cfg.path}")
-    print("POST /event   GET /state   GET /health")
+    print("POST /event   GET /state   GET /health   POST /mcp")
     try:
         while True:
             time.sleep(0.5)

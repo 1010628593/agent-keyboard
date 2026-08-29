@@ -12,3 +12,10 @@ import Testing
 @Test func scaledUsesRounding() {
     #expect(RGB.white.scaled(0.05) == RGB(13, 13, 13))
 }
+
+@Test func hexRoundTripsAndParsesShorthand() {
+    #expect(RGB(239, 68, 68).hexString == "#EF4444")
+    #expect(RGB(hex: "#ef4444") == RGB(239, 68, 68))
+    #expect(RGB(hex: "0f0") == RGB(0, 255, 0))
+    #expect(RGB(hex: "nope") == nil)
+}

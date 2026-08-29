@@ -20,6 +20,7 @@ final class AppModel {
     var integrations: [IntegrationSpec] = []
     var selectedAgentID: String? = "hermes"
     var lightingState: AgentStatus = .running
+    var lightingGlyphPreviewing = false
     var sidebar: SidebarItem = .devices
     var selectedPeripheral: PeripheralKind = .keyboard
     var agentLooks: [String: [AgentStatus: StateLook]] = AgentLookBook.seeded()
@@ -35,6 +36,8 @@ final class AppModel {
     var lastHIDWrite: Date?
     var hidWriteFailures = 0
     var startedAt = Date()
+    var mcpConfig = HookInstaller.inspectCursorMCP()
+    var mcpCopied: MCPCopiedFeedback = .none
 
     @ObservationIgnored private var keyboard: KeyboardDriver?
     @ObservationIgnored private var bridge = EventBridge()
@@ -42,6 +45,8 @@ final class AppModel {
     @ObservationIgnored private var reconnectTask: Task<Void, Never>?
     @ObservationIgnored private let snapshots = SnapshotBox()
     @ObservationIgnored private let hidWriter = HIDWriterBox()
+    @ObservationIgnored private let overlayBox = OverlayBox()
+    @ObservationIgnored private var lightingGlyphUntil: TimeInterval = 0
     @ObservationIgnored private(set) var frames = 0
     @ObservationIgnored private var didStart = false
     @ObservationIgnored private var eventTimes: [TimeInterval] = []
@@ -70,6 +75,13 @@ final class AppModel {
             if case .connected = self { return true }
             return false
         }
+    }
+
+    enum MCPCopiedFeedback: Equatable {
+        case none
+        case endpoint
+        case prompt
+        case json
     }
 
     var selectedSlot: AgentSlot? {
@@ -120,6 +132,10 @@ final class AppModel {
         let id = agentID ?? selectedAgentID ?? "hermes"
         return AgentLookBook.look(agentID: id, status: status, book: agentLooks)
     }
+
+    var mcpEndpoint: String { AK.mcpEndpoint }
+    var mcpOverlayActive = false
+    var mcpOverlayRemaining: TimeInterval = 0
 
     var lightingAppliedRecently: Bool {
         lightingAppliedAt > 0 && uptime - lightingAppliedAt < 2
@@ -292,20 +308,41 @@ final class AppModel {
     }
 
     func openLighting(for status: AgentStatus) {
-        lightingState = status
         selectedPeripheral = .keyboard
         sidebar = .lighting
+        selectLightingState(status)
+    }
+
+    func selectLightingState(_ status: AgentStatus) {
+        lightingState = status
+        if status == .running {
+            replayThinkingGlyph()
+        } else {
+            lightingGlyphUntil = 0
+            lightingGlyphPreviewing = false
+        }
+    }
+
+    func replayThinkingGlyph() {
+        lightingGlyphUntil = uptime + AK.glyphHoldSeconds
+        lightingGlyphPreviewing = true
     }
 
     func setEffect(_ effect: LightingEffect) {
         var look = look(for: lightingState)
+        guard look.effect != effect else { return }
         look.effect = effect
         writeLook(look)
     }
 
     func setColor(_ color: Color) {
+        setColor(RGB(color))
+    }
+
+    func setColor(_ rgb: RGB) {
         var look = look(for: lightingState)
-        look.color = RGB(color)
+        guard look.color != rgb else { return }
+        look.color = rgb
         writeLook(look)
     }
 
@@ -357,12 +394,14 @@ final class AppModel {
 
     func refreshIntegrations() {
         integrations = HookInstaller.specs()
+        mcpConfig = HookInstaller.inspectCursorMCP()
     }
 
     func installHooks() {
         do {
             try HookInstaller.installSupportScripts()
             integrations = try HookInstaller.installAll()
+            mcpConfig = HookInstaller.inspectCursorMCP()
             log("hooks", "Installed available agent hooks")
         } catch {
             lastError = String(describing: error)
@@ -373,6 +412,7 @@ final class AppModel {
     private func ensureAgentHooks() {
         do {
             integrations = try HookInstaller.installAll()
+            mcpConfig = HookInstaller.inspectCursorMCP()
             log("hooks", "Merged notify.sh into agent configs")
         } catch {
             integrations = HookInstaller.specs()
@@ -380,10 +420,50 @@ final class AppModel {
         }
     }
 
+    func installCursorMCP() {
+        do {
+            _ = try HookInstaller.installCursorMCP()
+            mcpConfig = HookInstaller.inspectCursorMCP()
+            log("mcp", "Wrote \(AK.mcpEndpoint) into ~/.cursor/mcp.json")
+        } catch {
+            lastError = String(describing: error)
+            log("mcp", lastError ?? "install failed")
+        }
+    }
+
+    func copyMCPEndpoint() {
+        copyToPasteboard(AK.mcpEndpoint)
+        flashMCPCopied(.endpoint)
+    }
+
+    func copyMCPSetupPrompt() {
+        copyToPasteboard(MCPService.setupPrompt)
+        flashMCPCopied(.prompt)
+    }
+
+    func copyMCPJSON() {
+        copyToPasteboard(MCPService.mcpJSONSnippet)
+        flashMCPCopied(.json)
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func flashMCPCopied(_ value: MCPCopiedFeedback) {
+        mcpCopied = value
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            if mcpCopied == value { mcpCopied = .none }
+        }
+    }
+
     func installHook(agentID: String) {
         do {
             try HookInstaller.install(agentID: agentID)
             integrations = HookInstaller.specs()
+            mcpConfig = HookInstaller.inspectCursorMCP()
             log("hooks", "Installed \(agentID)")
         } catch {
             lastError = String(describing: error)
@@ -430,7 +510,8 @@ final class AppModel {
                     row["progress"] = progress
                 }
                 return row
-            }
+            },
+            "overlay": overlayBox.snapshot(now: uptime),
         ]
     }
 
@@ -637,11 +718,15 @@ final class AppModel {
 
     private func lightingPreview() -> SceneRenderer.BoardPreview? {
         guard sidebar == .lighting else { return nil }
-        return .canvas(look(for: lightingState))
+        let look = look(for: lightingState)
+        if lightingState == .running, uptime < lightingGlyphUntil {
+            return .glyph(agentID: selectedAgentID ?? "hermes", color: look.color.scaled(0.95))
+        }
+        return .canvas(look)
     }
 
     private func paintFrame(now: TimeInterval, preview: SceneRenderer.BoardPreview?) -> [RGB] {
-        if agentLightingEnabled {
+        if let preview {
             return SceneRenderer.renderBoard(
                 dashboard,
                 looks: agentLooks,
@@ -649,12 +734,26 @@ final class AppModel {
                 map: lightingMap,
                 idleWhite: idleWhite,
                 globalBrightness: brightness,
-                pinnedCanvas: pinnedCanvas,
                 preview: preview
             )
         }
-        let dim = RGB.white.scaled(idleWhite * brightness)
-        return Array(repeating: dim, count: lightingMap.ledCount)
+        let base: [RGB]
+        if agentLightingEnabled {
+            base = SceneRenderer.renderBoard(
+                dashboard,
+                looks: agentLooks,
+                now: now,
+                map: lightingMap,
+                idleWhite: idleWhite,
+                globalBrightness: brightness,
+                pinnedCanvas: pinnedCanvas
+            )
+        } else {
+            let dim = RGB.white.scaled(idleWhite * brightness)
+            base = Array(repeating: dim, count: lightingMap.ledCount)
+        }
+        guard let overlay = overlayBox.current(now: now) else { return base }
+        return overlay.composite(base: base, now: now)
     }
 
     /// Enqueue a frame for the background HID writer. Non-blocking: the main
@@ -698,6 +797,12 @@ final class AppModel {
         pruneEvents(now: now)
         lastPixels = paintFrame(now: now, preview: lightingPreview())
         frames += 1
+        if lightingGlyphPreviewing, now >= lightingGlyphUntil {
+            lightingGlyphPreviewing = false
+        }
+        let live = overlayBox.current(now: now)
+        mcpOverlayActive = live != nil
+        mcpOverlayRemaining = live?.remaining(now: now) ?? 0
         writePixels(lastPixels)
         publishNow()
     }
@@ -732,11 +837,26 @@ final class AppModel {
                 self?.apply(event)
             }
         }
-        bridge.snapshot = { [snapshots] in
-            snapshots.state()
+        bridge.snapshot = { [snapshots, overlayBox] in
+            var state = snapshots.state()
+            state["overlay"] = overlayBox.snapshot(now: ProcessInfo.processInfo.systemUptime)
+            return state
         }
         bridge.health = { [snapshots] in
             snapshots.health()
+        }
+        bridge.now = { ProcessInfo.processInfo.systemUptime }
+        bridge.applyOverlay = { [overlayBox, snapshots] overlay in
+            overlayBox.set(overlay)
+            var state = snapshots.state()
+            state["overlay"] = overlay.snapshot(now: overlay.startedAt)
+            return state
+        }
+        bridge.releaseOverlay = { [overlayBox, snapshots] in
+            overlayBox.set(nil)
+            var state = snapshots.state()
+            state["overlay"] = MCPOverlay.inactiveSnapshot()
+            return state
         }
         do {
             try bridge.start(port: config.port)
@@ -851,6 +971,7 @@ final class AppModel {
         )
         model.sidebar = .devices
         model.integrations = HookInstaller.specs()
+        model.mcpConfig = HookInstaller.inspectCursorMCP()
         return model
     }
 
@@ -899,6 +1020,32 @@ private final class SnapshotBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return publishedHealth
+    }
+}
+
+private final class OverlayBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var overlay: MCPOverlay?
+
+    func set(_ overlay: MCPOverlay?) {
+        lock.lock()
+        self.overlay = overlay
+        lock.unlock()
+    }
+
+    func current(now: TimeInterval) -> MCPOverlay? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let overlay else { return nil }
+        if overlay.expired(now: now) {
+            self.overlay = nil
+            return nil
+        }
+        return overlay
+    }
+
+    func snapshot(now: TimeInterval) -> [String: Any] {
+        current(now: now)?.snapshot(now: now) ?? MCPOverlay.inactiveSnapshot()
     }
 }
 

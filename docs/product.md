@@ -98,8 +98,14 @@ Apply Lighting 把当前状态的方案钉在画布上；HTTP 状态到来后改
 
 ---
 
+## MCP
+
+MCP 是后台灯光 I/O，不是产品第三页。智能体按键名自绘像素，最长 15 秒，到期交还 cookbook。不走 Lighting 页那 16 种效果，也不是用户自绘字帖。Settings → MCP 显示服务状态、端点，并一键写入 `~/.cursor/mcp.json`。
+
+HTTP `127.0.0.1:7420`（含 `POST /mcp`）、HID 重连、钩子安装、MCP 配置留在后台和 Settings。
+
+---
+
 ## 不做
 
-Agent Prompt / Model / Tools / Token、Agent 生命周期、Dashboard、Scenes、Automations、Rule Engine、Analytics、Runtime Health、Bridge 页、Logs 页、Agent 创建器、DPI、按键映射、固件升级、用户自绘字帖。
-
-HTTP `127.0.0.1:7420`、HID 重连、钩子安装留在后台和 Settings。
+Agent Prompt / Model / Token、Agent 生命周期、Dashboard、Scenes、Automations、Rule Engine、Analytics、Runtime Health、Bridge 页、Logs 页、Agent 创建器、DPI、按键映射、固件升级、用户自绘字帖。

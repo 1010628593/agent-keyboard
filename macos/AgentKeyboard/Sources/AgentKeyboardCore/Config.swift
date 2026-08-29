@@ -221,6 +221,7 @@ public struct IntegrationSpec: Identifiable, Equatable, Sendable {
         case hermesYAML
         case piTemplate
         case workbuddy
+        case cursorMCP
     }
 }
 
@@ -273,6 +274,7 @@ public enum HookInstaller {
             inspectHermes(home: home, notify: notify),
             inspectPi(home: home),
             inspectWorkbuddy(home: home, notify: notify),
+            inspectCursorMCP(),
         ]
     }
 
@@ -284,6 +286,7 @@ public enum HookInstaller {
         _ = try installHermes()
         try installPiTemplate()
         _ = try installWorkbuddyIfPresent()
+        _ = try installCursorMCP()
         return specs()
     }
 
@@ -296,6 +299,7 @@ public enum HookInstaller {
         case "hermes": _ = try installHermes()
         case "pi": try installPiTemplate()
         case "workbuddy": _ = try installWorkbuddyIfPresent()
+        case "mcp": _ = try installCursorMCP()
         default: break
         }
     }
@@ -576,6 +580,60 @@ public enum HookInstaller {
             ],
             agent: "workbuddy",
             createIfMissing: !exists
+        )
+    }
+
+    public static func inspectCursorMCP() -> IntegrationSpec {
+        let url = MCPService.cursorConfigURL()
+        let exists = FileManager.default.isReadableFile(atPath: url.path)
+        var installed = false
+        if exists, let text = try? String(contentsOf: url, encoding: .utf8) {
+            installed = cursorMCPInstalled(in: text)
+        }
+        let detail: String
+        if installed {
+            detail = "MCP server agent-keyboard → \(AK.mcpEndpoint)"
+        } else if exists {
+            detail = "mcp.json found, agent-keyboard not configured"
+        } else {
+            detail = "Will create ~/.cursor/mcp.json"
+        }
+        return IntegrationSpec(
+            agentID: "mcp",
+            name: "Cursor MCP",
+            configPath: url.path,
+            kind: .cursorMCP,
+            available: true,
+            installed: installed,
+            detail: detail
+        )
+    }
+
+    public static func installCursorMCP() throws -> Bool {
+        try mergeCursorMCP(url: MCPService.cursorConfigURL())
+    }
+
+    static func mergeCursorMCP(url: URL) throws -> Bool {
+        let fm = FileManager.default
+        if !fm.isReadableFile(atPath: url.path) {
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "{}".write(to: url, atomically: true, encoding: .utf8)
+        }
+        let data = try Data(contentsOf: url)
+        var root = (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        var servers = root["mcpServers"] as? [String: Any] ?? [:]
+        servers[MCPService.serverName] = [
+            "url": AK.mcpEndpoint,
+        ]
+        root["mcpServers"] = servers
+        let out = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+        try out.write(to: url, options: .atomic)
+        return true
+    }
+
+    static func cursorMCPInstalled(in text: String) -> Bool {
+        text.contains(AK.mcpEndpoint) || (
+            text.contains("agent-keyboard") && text.contains("/mcp")
         )
     }
 

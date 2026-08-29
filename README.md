@@ -147,6 +147,22 @@ POST http://127.0.0.1:7420/event
 
 `status` accepts: `idle`, `running` / `thinking`, `tool` / `tool_calling`, `approval`, `done` / `completed`, `error`.
 
+## MCP (agent-driven keys)
+
+Agent Light exposes a pixel overlay at `http://127.0.0.1:7420/mcp`. It does **not** use cookbook effects (Wave / Comet / …). The agent names keys, colors, `duration` (required, max 15s), and `brightness` (0–1). When the lease ends, cookbook lighting resumes.
+
+| Tool | Role |
+| --- | --- |
+| `keyboard_layout` | 107-key names, row/col, aliases |
+| `keyboard_keys` | Still frame. Always pass `duration` and `brightness`. |
+| `keyboard_frames` | Timeline: `loop: true` cycles; default is a segmented story. `frames`+`fps` or `cues` with `at`. |
+| `keyboard_state` | Device + overlay remaining |
+| `keyboard_release` | End the lease early |
+
+HTTP: `GET /lighting/layout`, `POST /lighting/keys`, `POST /lighting/frames`, `POST /lighting/release`. Stdio: `python -m agent_keyboard mcp`.
+
+Connect Cursor with `.cursor/mcp.json` (this repo) or Settings → MCP → **Install Cursor MCP**, which merges `~/.cursor/mcp.json`. Copy the setup prompt from that pane if another agent needs to connect itself. Agent Light must be listening on `:7420`. Enable `agent-keyboard` and allow the tools.
+
 ## Swift app (macOS 15+)
 
 The same dashboard lives in `macos/AgentKeyboard` as a native SwiftUI app: IOKit HID, 32 FPS preview, oMLX-style sidebar (Dashboard / Agents / Lighting / Bridge / Devices / Logs), menu bar extra, Settings, and the same HTTP contract on `127.0.0.1:7420`. The driver is vendor-pluggable; this build only implements **ASUS / ROG Aura Direct** (Scope II RX/NX mapped; other TUF/ROG boards are listed as unmapped). Only one process can own the Aura collection — stop `python -m agent_keyboard serve` before launching the app.

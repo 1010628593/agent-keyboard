@@ -37,6 +37,9 @@ public final class EventBridge: @unchecked Sendable {
     public var onEvent: (@Sendable (AgentEvent) -> Void)?
     public var snapshot: (@Sendable () -> [String: Any])?
     public var health: (@Sendable () -> [String: Any])?
+    public var applyOverlay: (@Sendable (MCPOverlay) -> [String: Any])?
+    public var releaseOverlay: (@Sendable () -> [String: Any])?
+    public var now: (@Sendable () -> TimeInterval)?
 
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "agent-keyboard.http")
@@ -116,12 +119,27 @@ public final class EventBridge: @unchecked Sendable {
             }
             payload = Data("{\"error\":\"\(message)\"}".utf8)
             code = 400
+        } catch let error as OverlayError {
+            var body: [String: Any] = ["error": error.localizedDescription]
+            if case .unknownKeys(let names) = error {
+                body["unknown"] = names
+                body["keys"] = KeyName.uniqueNames
+            }
+            payload = (try? JSONSerialization.data(withJSONObject: body)) ?? Data(#"{"error":"overlay"}"#.utf8)
+            code = 400
         } catch {
             payload = Data(#"{"error":"bad request"}"#.utf8)
             code = 400
         }
+        let phrase: String
+        switch code {
+        case 200: phrase = "OK"
+        case 202: phrase = "Accepted"
+        case 204: phrase = "No Content"
+        default: phrase = "Error"
+        }
         let response = Data(
-            "HTTP/1.1 \(code) \(code == 200 ? "OK" : "Error")\r\nContent-Type: application/json\r\nContent-Length: \(payload.count)\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
+            "HTTP/1.1 \(code) \(phrase)\r\nContent-Type: application/json\r\nContent-Length: \(payload.count)\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
                 .utf8
         ) + payload
         connection.send(content: response, isComplete: true, completion: .contentProcessed { _ in
@@ -141,6 +159,30 @@ public final class EventBridge: @unchecked Sendable {
             let snap = snapshot?() ?? [:]
             let data = try JSONSerialization.data(withJSONObject: snap)
             return (200, data)
+        }
+        if method == "GET", path == "/lighting/layout" || path == "/lighting/layout/" {
+            return (200, try JSONSerialization.data(withJSONObject: OverlayParser.layoutPayload()))
+        }
+        if method == "POST", path == "/mcp" || path == "/mcp/" {
+            let clock = now?() ?? ProcessInfo.processInfo.systemUptime
+            let backend = MCPBackend(
+                applyOverlay: { [applyOverlay] overlay in applyOverlay?(overlay) ?? overlay.snapshot(now: overlay.startedAt) },
+                releaseOverlay: { [releaseOverlay] in releaseOverlay?() ?? MCPOverlay.inactiveSnapshot() },
+                snapshot: { [snapshot] in snapshot?() ?? [:] },
+                health: { [health] in health?() ?? ["ok": true] }
+            )
+            let (code, data) = try MCPProtocol.handle(body: body, now: clock, backend: backend)
+            return (code, data ?? Data())
+        }
+        if method == "POST", path == "/lighting/keys" || path == "/lighting/keys/" {
+            return try lightingKeys(body)
+        }
+        if method == "POST", path == "/lighting/frames" || path == "/lighting/frames/" {
+            return try lightingFrames(body)
+        }
+        if method == "POST", path == "/lighting/release" || path == "/lighting/release/" {
+            let payload = releaseOverlay?() ?? MCPOverlay.inactiveSnapshot()
+            return (200, try JSONSerialization.data(withJSONObject: payload))
         }
         if method == "POST", path == "/event" || path == "/event/" {
             let event = try decodeEvent(body)
@@ -170,6 +212,22 @@ public final class EventBridge: @unchecked Sendable {
             return (200, try JSONSerialization.data(withJSONObject: snap))
         }
         return (404, try jsonError("not found"))
+    }
+
+    private func lightingKeys(_ body: Data) throws -> (Int, Data) {
+        let object = try OverlayParser.parseJSON(body)
+        let clock = now?() ?? ProcessInfo.processInfo.systemUptime
+        let overlay = try OverlayParser.parseKeys(object, now: clock)
+        let payload = applyOverlay?(overlay) ?? overlay.snapshot(now: overlay.startedAt)
+        return (200, try JSONSerialization.data(withJSONObject: payload))
+    }
+
+    private func lightingFrames(_ body: Data) throws -> (Int, Data) {
+        let object = try OverlayParser.parseJSON(body)
+        let clock = now?() ?? ProcessInfo.processInfo.systemUptime
+        let overlay = try OverlayParser.parseFrames(object, now: clock)
+        let payload = applyOverlay?(overlay) ?? overlay.snapshot(now: overlay.startedAt)
+        return (200, try JSONSerialization.data(withJSONObject: payload))
     }
 
     private func jsonError(_ message: String) throws -> Data {

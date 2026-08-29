@@ -140,6 +140,21 @@ import Testing
     #expect(f1.luminance > 20)
 }
 
+@Test func lightingPreviewOverridesPinnedCanvas() {
+    let pin = StateLook(effect: .staticFill, color: RGB(0, 255, 0), brightness: 1, speed: 1)
+    let preview = StateLook(effect: .staticFill, color: RGB(255, 0, 0), brightness: 1, speed: 1)
+    let pixels = SceneRenderer.renderBoard(
+        Dashboard(),
+        looks: AgentLookBook.seeded(),
+        now: 1,
+        pinnedCanvas: pin,
+        preview: .canvas(preview)
+    )
+    let w = KeyboardProfile.scopeII.index(named: "W")
+    #expect(pixels[w].r > 200)
+    #expect(pixels[w].r > pixels[w].g)
+}
+
 @Test func pinnedCanvasLightsMainKeysNotFKeys() {
     let pin = StateLook(effect: .staticFill, color: RGB(239, 68, 68), brightness: 1, speed: 1)
     let pixels = SceneRenderer.renderBoard(

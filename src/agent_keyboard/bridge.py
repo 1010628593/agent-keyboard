@@ -3,16 +3,24 @@
 POST /event          { "agent": "codex", "status": "running", "context": 0.6 }
 GET  /state
 GET  /health
+GET  /lighting/layout
+POST /lighting/keys
+POST /lighting/frames
+POST /lighting/release
+POST /mcp            JSON-RPC
 POST /demo/<name>    optional cinematic helpers
 """
 
 from __future__ import annotations
 
 import json
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
 
+from .mcp import EngineBackend, handle_rpc
+from .overlay import OverlayError, layout_payload, parse_frames_lease, parse_keys_lease
 from .renderer import Engine
 from .state import AgentEvent, AgentStatus
 
@@ -27,7 +35,29 @@ def _json(handler: BaseHTTPRequestHandler, code: int, payload: Any) -> None:
     handler.wfile.write(body)
 
 
+def _read_json(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+    length = int(handler.headers.get("content-length") or 0)
+    raw = handler.rfile.read(length) if length else b"{}"
+    try:
+        payload = json.loads(raw.decode("utf-8") or "{}")
+    except json.JSONDecodeError as exc:
+        raise OverlayError("invalid json") from exc
+    if not isinstance(payload, dict):
+        raise OverlayError("invalid json")
+    return payload
+
+
+def _overlay_error_body(exc: OverlayError) -> dict[str, Any]:
+    body: dict[str, Any] = {"error": str(exc)}
+    if exc.unknown:
+        body["unknown"] = exc.unknown
+        body["keys"] = exc.keys
+    return body
+
+
 def make_handler(engine: Engine):
+    backend = EngineBackend(engine)
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args) -> None:  # noqa: A003
             return
@@ -42,34 +72,53 @@ def make_handler(engine: Engine):
         def do_GET(self) -> None:  # noqa: N802
             path = urlparse(self.path).path.rstrip("/") or "/"
             if path == "/health":
-                _json(self, 200, {"ok": True, "frames": engine.frames, "device": engine.device.info})
+                _json(self, 200, engine.health())
                 return
             if path == "/state":
                 _json(self, 200, engine.snapshot())
+                return
+            if path == "/lighting/layout":
+                _json(self, 200, layout_payload())
                 return
             _json(self, 404, {"error": "not found"})
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path.rstrip("/") or "/"
-            length = int(self.headers.get("content-length") or 0)
-            raw = self.rfile.read(length) if length else b"{}"
+            if path == "/mcp":
+                self._handle_mcp()
+                return
             try:
-                payload = json.loads(raw.decode("utf-8") or "{}")
-            except json.JSONDecodeError:
-                _json(self, 400, {"error": "invalid json"})
+                payload = _read_json(self)
+            except OverlayError as exc:
+                _json(self, 400, {"error": str(exc)})
                 return
             if path == "/event":
                 try:
-                    event = AgentEvent.from_dict(payload if isinstance(payload, dict) else {})
+                    event = AgentEvent.from_dict(payload)
                     engine.apply_event(event)
                 except (KeyError, ValueError) as exc:
                     _json(self, 400, {"error": str(exc)})
                     return
                 _json(self, 200, engine.snapshot())
                 return
+            if path == "/lighting/keys":
+                try:
+                    _json(self, 200, engine.apply_overlay(parse_keys_lease(payload, now=time.monotonic())))
+                except OverlayError as exc:
+                    _json(self, 400, _overlay_error_body(exc))
+                return
+            if path == "/lighting/frames":
+                try:
+                    _json(self, 200, engine.apply_overlay(parse_frames_lease(payload, now=time.monotonic())))
+                except OverlayError as exc:
+                    _json(self, 400, _overlay_error_body(exc))
+                return
+            if path == "/lighting/release":
+                _json(self, 200, engine.release_overlay())
+                return
             if path.startswith("/agents/"):
                 agent = path.split("/")[-1]
-                payload = dict(payload) if isinstance(payload, dict) else {}
+                payload = dict(payload)
                 payload["agent"] = agent
                 try:
                     engine.apply_event(AgentEvent.from_dict(payload))
@@ -96,6 +145,26 @@ def make_handler(engine: Engine):
                 _json(self, 200, engine.snapshot())
                 return
             _json(self, 404, {"error": "not found"})
+
+        def _handle_mcp(self) -> None:
+            length = int(self.headers.get("content-length") or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                message = json.loads(raw.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                _json(self, 400, {"error": "invalid json"})
+                return
+            if not isinstance(message, dict):
+                _json(self, 400, {"error": "invalid json"})
+                return
+            reply = handle_rpc(message, backend)
+            if reply is None:
+                self.send_response(202)
+                self.send_header("access-control-allow-origin", "*")
+                self.send_header("content-length", "0")
+                self.end_headers()
+                return
+            _json(self, 200, reply)
 
     return Handler
 

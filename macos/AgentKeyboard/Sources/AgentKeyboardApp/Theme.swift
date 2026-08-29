@@ -85,17 +85,29 @@ extension RGB {
     }
 
     init(_ color: Color) {
-        let converted = NSColor(color).usingColorSpace(.sRGB)
-        var r: CGFloat = 0
-        var g: CGFloat = 0
-        var b: CGFloat = 0
-        var a: CGFloat = 0
-        converted?.getRed(&r, green: &g, blue: &b, alpha: &a)
-        self.init(
-            UInt8((r * 255).rounded()),
-            UInt8((g * 255).rounded()),
-            UInt8((b * 255).rounded())
-        )
+        let ns = NSColor(color)
+        if let srgb = Self.sRGBColor(from: ns) {
+            var r: CGFloat = 0
+            var g: CGFloat = 0
+            var b: CGFloat = 0
+            var a: CGFloat = 0
+            srgb.getRed(&r, green: &g, blue: &b, alpha: &a)
+            self.init(
+                UInt8(clamping: Int((Swift.min(1, Swift.max(0, r)) * 255).rounded())),
+                UInt8(clamping: Int((Swift.min(1, Swift.max(0, g)) * 255).rounded())),
+                UInt8(clamping: Int((Swift.min(1, Swift.max(0, b)) * 255).rounded()))
+            )
+            return
+        }
+        self.init(0, 0, 0)
+    }
+
+    private static func sRGBColor(from color: NSColor) -> NSColor? {
+        if let srgb = color.usingColorSpace(.sRGB) { return srgb }
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let cg = color.cgColor.converted(to: space, intent: .relativeColorimetric, options: nil)
+        else { return nil }
+        return NSColor(cgColor: cg)?.usingColorSpace(.sRGB)
     }
 }
 

@@ -72,6 +72,24 @@ public struct RGB: Hashable, Sendable, Equatable {
 
     public var luminance: Int { Int(r) + Int(g) + Int(b) }
 
+    public var hexString: String {
+        String(format: "#%02X%02X%02X", r, g, b)
+    }
+
+    public init?(hex: String) {
+        var text = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("#") { text.removeFirst() }
+        if text.count == 3 {
+            text = text.map { "\($0)\($0)" }.joined()
+        }
+        guard text.count == 6, let packed = UInt32(text, radix: 16) else { return nil }
+        self.init(
+            UInt8((packed >> 16) & 0xFF),
+            UInt8((packed >> 8) & 0xFF),
+            UInt8(packed & 0xFF)
+        )
+    }
+
     /// Hue in 0..1, derived from the RGB triple. Achromatic colors return 0.
     public var hue: Double {
         let rf = Double(r) / 255

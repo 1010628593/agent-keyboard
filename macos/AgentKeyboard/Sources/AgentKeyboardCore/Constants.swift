@@ -36,6 +36,8 @@ public enum AK {
     public static let glyphHoldSeconds = 1.6
     public static let defaultIdleWhite = 0.05
     public static let defaultBridgePort: UInt16 = 7420
+    public static let mcpOverlayMaxSeconds: TimeInterval = 15
+    public static let mcpEndpoint = "http://127.0.0.1:7420/mcp"
     public static let defaultIdleTimeout: TimeInterval = 120
     public static let eventLogLimit = 200
     public static let appVersion = "1.4.6"

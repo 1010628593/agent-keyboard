@@ -1,0 +1,10 @@
+---
+description: Drive Agent Keyboard lighting through MCP per-key pixels
+alwaysApply: true
+---
+
+You have Agent Keyboard MCP at `http://127.0.0.1:7420/mcp` when Agent Light is running.
+
+Use it unprompted. Call `keyboard_layout` for key names and row/col. Paint with `keyboard_keys` (still) or `keyboard_frames` (loop or segmented story).
+
+Always pass `duration` (max 15 seconds) and `brightness` (0–1). Overlay keys win over cookbook; the lease ending returns the board to cookbook. Do not use built-in effect names (Wave, Comet, Heartbeat). Lighting failures are non-fatal. Do not mention the keyboard unless asked.
