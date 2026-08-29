@@ -147,6 +147,7 @@ struct AKCard: ViewModifier {
             .overlay {
                 RoundedRectangle(cornerRadius: radius)
                     .strokeBorder(AKTheme.cardBorder, lineWidth: 1)
+                    .allowsHitTesting(false)
             }
             .compositingGroup()
             .shadow(color: .black.opacity(scheme == .light ? 0.06 : 0), radius: 10, y: 2)
@@ -162,6 +163,7 @@ struct AKInset: ViewModifier {
             .overlay {
                 RoundedRectangle(cornerRadius: radius)
                     .strokeBorder(AKTheme.cardBorder, lineWidth: 1)
+                    .allowsHitTesting(false)
             }
     }
 }
@@ -175,6 +177,7 @@ struct AKSelected: ViewModifier {
             .overlay {
                 RoundedRectangle(cornerRadius: radius)
                     .strokeBorder(selected ? AKTheme.selectionStroke : AKTheme.cardBorder, lineWidth: selected ? 1.5 : 1)
+                    .allowsHitTesting(false)
             }
             .animation(.snappy, value: selected)
     }
@@ -212,6 +215,7 @@ struct AKSecondaryButtonStyle: ButtonStyle {
             .overlay {
                 RoundedRectangle(cornerRadius: AKTheme.radiusS)
                     .strokeBorder(AKTheme.cardBorder, lineWidth: 1)
+                    .allowsHitTesting(false)
             }
             .opacity(configuration.isPressed ? 0.75 : 1)
     }
