@@ -110,36 +110,35 @@ struct LightingInspector: View {
             Text(AKL("State"))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
-            ScrollView(.horizontal) {
-                HStack(spacing: 6) {
-                    ForEach(AgentStatus.allCases) { status in
-                        let selected = model.lightingState == status
-                        Button {
-                            withAnimation(.snappy) { model.selectLightingState(status) }
-                        } label: {
-                            Text(status.localizedTitle)
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(selected ? AKTheme.accent : .primary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(
-                                    selected ? AKTheme.accent.opacity(0.18) : AKTheme.inset,
-                                    in: .capsule
-                                )
-                                .overlay {
-                                    Capsule()
-                                        .strokeBorder(
-                                            selected ? AKTheme.accent.opacity(0.7) : Color.clear,
-                                            lineWidth: 1
-                                        )
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(selected ? .isSelected : [])
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 52), spacing: 6)], alignment: .leading, spacing: 6) {
+                ForEach(AgentStatus.allCases) { status in
+                    let selected = model.lightingState == status
+                    Button {
+                        model.selectLightingState(status)
+                    } label: {
+                        Text(status.localizedTitle)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(selected ? AKTheme.accent : .primary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                selected ? AKTheme.accent.opacity(0.18) : AKTheme.inset,
+                                in: .capsule
+                            )
+                            .overlay {
+                                Capsule()
+                                    .strokeBorder(
+                                        selected ? AKTheme.accent.opacity(0.7) : Color.clear,
+                                        lineWidth: 1
+                                    )
+                                    .allowsHitTesting(false)
+                            }
+                            .contentShape(.capsule)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
                 }
             }
-            .scrollIndicators(.hidden)
         }
     }
 
@@ -168,6 +167,7 @@ struct LightingInspector: View {
             .labelsHidden()
             .pickerStyle(.menu)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect)
         }
         .akCard(padding: 12)
     }
@@ -190,7 +190,9 @@ struct LightingInspector: View {
                                     look.color == rgb ? Color.primary : Color.white.opacity(0.35),
                                     lineWidth: look.color == rgb ? 2 : 1
                                 )
+                                .allowsHitTesting(false)
                             }
+                            .contentShape(.circle)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(paletteName(rgb)))
@@ -350,6 +352,7 @@ struct LightingInspector: View {
                     .foregroundStyle(.tertiary)
                     .accessibilityHidden(true)
                 Slider(value: value, in: range)
+                    .controlSize(.small)
                 Image(systemName: trailing)
                     .foregroundStyle(.tertiary)
                     .accessibilityHidden(true)

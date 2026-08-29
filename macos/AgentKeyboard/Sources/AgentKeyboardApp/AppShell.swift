@@ -18,10 +18,12 @@ struct AppShell: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(AKTheme.canvas)
-        }
-        .inspector(isPresented: $inspectorPresented) {
-            InspectorPane()
-                .inspectorColumnWidth(min: 260, ideal: 300, max: 360)
+            if inspectorPresented {
+                Divider()
+                InspectorPane()
+                    .frame(width: 300)
+                    .frame(maxHeight: .infinity)
+            }
         }
         .onChange(of: model.sidebar) { _, item in
             if item == .lighting {
@@ -31,7 +33,7 @@ struct AppShell: View {
         .toolbar {
             ToolbarItem {
                 Button {
-                    inspectorPresented.toggle()
+                    withAnimation(.snappy) { inspectorPresented.toggle() }
                 } label: {
                     Label {
                         Text(AKL("Inspector"))

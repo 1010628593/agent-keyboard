@@ -143,14 +143,16 @@ struct AKCard: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(padding)
-            .background(AKTheme.card, in: .rect(cornerRadius: radius))
-            .overlay {
-                RoundedRectangle(cornerRadius: radius)
-                    .strokeBorder(AKTheme.cardBorder, lineWidth: 1)
-                    .allowsHitTesting(false)
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: radius)
+                        .fill(AKTheme.card)
+                        .shadow(color: .black.opacity(scheme == .light ? 0.06 : 0), radius: 10, y: 2)
+                    RoundedRectangle(cornerRadius: radius)
+                        .strokeBorder(AKTheme.cardBorder, lineWidth: 1)
+                }
+                .allowsHitTesting(false)
             }
-            .compositingGroup()
-            .shadow(color: .black.opacity(scheme == .light ? 0.06 : 0), radius: 10, y: 2)
     }
 }
 
@@ -159,11 +161,14 @@ struct AKInset: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background(AKTheme.inset, in: .rect(cornerRadius: radius))
-            .overlay {
-                RoundedRectangle(cornerRadius: radius)
-                    .strokeBorder(AKTheme.cardBorder, lineWidth: 1)
-                    .allowsHitTesting(false)
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: radius)
+                        .fill(AKTheme.inset)
+                    RoundedRectangle(cornerRadius: radius)
+                        .strokeBorder(AKTheme.cardBorder, lineWidth: 1)
+                }
+                .allowsHitTesting(false)
             }
     }
 }
@@ -211,12 +216,16 @@ struct AKSecondaryButtonStyle: ButtonStyle {
             .font(.callout)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(AKTheme.inset, in: .rect(cornerRadius: AKTheme.radiusS))
-            .overlay {
-                RoundedRectangle(cornerRadius: AKTheme.radiusS)
-                    .strokeBorder(AKTheme.cardBorder, lineWidth: 1)
-                    .allowsHitTesting(false)
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: AKTheme.radiusS)
+                        .fill(AKTheme.inset)
+                    RoundedRectangle(cornerRadius: AKTheme.radiusS)
+                        .strokeBorder(AKTheme.cardBorder, lineWidth: 1)
+                }
+                .allowsHitTesting(false)
             }
+            .contentShape(.rect)
             .opacity(configuration.isPressed ? 0.75 : 1)
     }
 }

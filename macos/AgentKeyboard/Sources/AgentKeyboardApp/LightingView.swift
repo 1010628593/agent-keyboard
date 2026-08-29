@@ -73,12 +73,15 @@ struct LightingStage: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity)
-        .background(AKTheme.keyWell, in: .rect(cornerRadius: AKTheme.radiusL))
-        .overlay {
-            RoundedRectangle(cornerRadius: AKTheme.radiusL)
-                .strokeBorder(AKTheme.accent.opacity(0.55), lineWidth: 1)
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: AKTheme.radiusL)
+                    .fill(AKTheme.keyWell)
+                RoundedRectangle(cornerRadius: AKTheme.radiusL)
+                    .strokeBorder(AKTheme.accent.opacity(0.55), lineWidth: 1)
+            }
+            .allowsHitTesting(false)
         }
-        .compositingGroup()
     }
 }
 
@@ -101,8 +104,10 @@ struct DevicePickButton: View {
             .padding(.vertical, 12)
             .background(AKTheme.card, in: .rect(cornerRadius: 10))
             .akSelected(model.selectedPeripheral == kind, radius: 10)
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .contentShape(.rect)
         .accessibilityHint(kind == .mouse ? AKL("Mouse lighting is preview only") : LocalizedStringResource(stringLiteral: ""))
     }
 }
@@ -126,8 +131,10 @@ struct EffectPickButton: View {
             .padding(.vertical, 12)
             .background(AKTheme.card, in: .rect(cornerRadius: 10))
             .akSelected(model.look(for: model.lightingState).effect == effect, radius: 10)
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .contentShape(.rect)
         .accessibilityAddTraits(model.look(for: model.lightingState).effect == effect ? .isSelected : [])
     }
 }
