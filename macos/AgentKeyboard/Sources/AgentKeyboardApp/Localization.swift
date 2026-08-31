@@ -87,6 +87,30 @@ extension LightingTarget {
     }
 }
 
+extension LightingCanvasRegion {
+    var localizedTitle: LocalizedStringResource {
+        switch self {
+        case .all: AKL("All keys")
+        case .main: AKL("Main Keys")
+        case .functionKeys: AKL("F7–F12")
+        case .navigation: AKL("Navigation & Arrows")
+        case .numpad: AKL("Numpad")
+        case .logo: AKL("Logo")
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .all: "square.grid.3x3"
+        case .main: "keyboard"
+        case .functionKeys: "circle.grid.3x1"
+        case .navigation: "arrow.up.left.and.arrow.down.right"
+        case .numpad: "square.grid.3x3.fill"
+        case .logo: "sparkle"
+        }
+    }
+}
+
 extension LightingEffect {
     var localizedTitle: LocalizedStringResource {
         switch self {
@@ -110,6 +134,22 @@ extension LightingEffect {
     }
 }
 
+extension LightingParameterKind {
+    var localizedTitle: LocalizedStringResource {
+        switch self {
+        case .speed: AKL("Speed")
+        case .angle: AKL("Angle")
+        case .width: AKL("Width")
+        case .density: AKL("Density")
+        case .tail: AKL("Tail")
+        case .decay: AKL("Decay")
+        case .minimumBrightness: AKL("Minimum Brightness")
+        case .randomColors: AKL("Random Colors")
+        case .animated: AKL("Animated")
+        }
+    }
+}
+
 extension AgentStatus {
     var localizedTitle: LocalizedStringResource {
         switch self {
@@ -119,6 +159,28 @@ extension AgentStatus {
         case .approval: AKL("Approval")
         case .done: AKL("Done")
         case .error: AKL("Error")
+        }
+    }
+
+    func localizedString(locale: Locale) -> String {
+        switch self {
+        case .idle: AKString("Idle", locale: locale)
+        case .running: AKString("Thinking", locale: locale)
+        case .tool: AKString("Tool", locale: locale)
+        case .approval: AKString("Approval", locale: locale)
+        case .done: AKString("Done", locale: locale)
+        case .error: AKString("Error", locale: locale)
+        }
+    }
+
+    var localizedDetail: LocalizedStringResource {
+        switch self {
+        case .idle: AKL("Low-profile ambient standby.")
+        case .running: AKL("Live progress across the board.")
+        case .tool: AKL("External action in progress.")
+        case .approval: AKL("Waiting for your confirmation.")
+        case .done: AKL("Completed and settling.")
+        case .error: AKL("Immediate attention required.")
         }
     }
 }

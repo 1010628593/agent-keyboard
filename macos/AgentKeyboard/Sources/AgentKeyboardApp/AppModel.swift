@@ -21,11 +21,13 @@ final class AppModel {
     var selectedAgentID: String? = "hermes"
     var lightingState: AgentStatus = .running
     var lightingGlyphPreviewing = false
-    var sidebar: SidebarItem = .devices
+    var lightingPreviewActive = false
+    var sidebar: SidebarItem = .agents
     var selectedPeripheral: PeripheralKind = .keyboard
+    var lightingSchemes: [String: LightingScheme] = LightingSchemeLibrary.builtIns()
+    var agentSchemeAssignments: [String: [AgentStatus: String]] = LightingSchemeLibrary.defaultAssignments()
     var agentLooks: [String: [AgentStatus: StateLook]] = AgentLookBook.seeded()
     var pinnedCanvas: StateLook?
-    var lightingAppliedAt: TimeInterval = 0
     var agentLightingEnabled = true
     var brightness: Double = AK.defaultBrightness
     var appearance: AppearancePreference = .system
@@ -84,6 +86,14 @@ final class AppModel {
         case json
     }
 
+    struct LightingSchemeUse: Identifiable, Equatable {
+        let agentID: String
+        let agentName: String
+        let status: AgentStatus
+
+        var id: String { "\(agentID).\(status.rawValue)" }
+    }
+
     var selectedSlot: AgentSlot? {
         if let selectedAgentID {
             return dashboard.resolve(selectedAgentID) ?? dashboard.slot(forAgentID: selectedAgentID)
@@ -130,16 +140,96 @@ final class AppModel {
 
     func look(for status: AgentStatus, agentID: String? = nil) -> StateLook {
         let id = agentID ?? selectedAgentID ?? "hermes"
-        return AgentLookBook.look(agentID: id, status: status, book: agentLooks)
+        let fallbackID = LightingSchemeLibrary.builtInID(agentID: id, status: status)
+        let schemeID = agentSchemeAssignments[id]?[status] ?? fallbackID
+        return lightingSchemes[schemeID]?.look
+            ?? lightingSchemes[fallbackID]?.look
+            ?? AgentLookBook.look(agentID: id, status: status, book: agentLooks)
+    }
+
+    func lightingSchemeID(for status: AgentStatus, agentID: String? = nil) -> String {
+        let id = agentID ?? selectedAgentID ?? "hermes"
+        return agentSchemeAssignments[id]?[status]
+            ?? LightingSchemeLibrary.builtInID(agentID: id, status: status)
+    }
+
+    func lightingScheme(for status: AgentStatus, agentID: String? = nil) -> LightingScheme {
+        let id = agentID ?? selectedAgentID ?? "hermes"
+        let fallbackID = LightingSchemeLibrary.builtInID(agentID: id, status: status)
+        let schemeID = lightingSchemeID(for: status, agentID: id)
+        return lightingSchemes[schemeID]
+            ?? lightingSchemes[fallbackID]
+            ?? LightingScheme(
+                id: fallbackID,
+                name: "\(id) · \(status.displayTitle)",
+                kind: .builtIn,
+                look: AgentLookBook.look(agentID: id, status: status, book: agentLooks)
+            )
+    }
+
+    var currentLightingSchemeID: String {
+        lightingSchemeID(for: lightingState)
+    }
+
+    var currentLightingScheme: LightingScheme {
+        lightingScheme(for: lightingState)
+    }
+
+    var currentLightingSchemeUsageCount: Int {
+        lightingSchemeUsageCount(currentLightingSchemeID)
+    }
+
+    func lightingSchemeDisplayName(_ scheme: LightingScheme) -> String {
+        guard scheme.isBuiltIn else { return scheme.name }
+        for spec in AgentSpec.defaults {
+            for status in AgentStatus.allCases
+            where LightingSchemeLibrary.builtInID(agentID: spec.agentID, status: status) == scheme.id
+            {
+                return "\(spec.name) · \(status.localizedString(locale: resolvedLocale))"
+            }
+        }
+        return scheme.name
+    }
+
+    var currentAgentBuiltInSchemes: [LightingScheme] {
+        let prefix = "builtin.\(selectedAgentID ?? "hermes")."
+        return lightingSchemes.values
+            .filter { $0.isBuiltIn && $0.id.hasPrefix(prefix) }
+            .sorted { lhs, rhs in
+                let lhsIndex = AgentStatus.allCases.firstIndex { lhs.id.hasSuffix(".\($0.rawValue)") } ?? 0
+                let rhsIndex = AgentStatus.allCases.firstIndex { rhs.id.hasSuffix(".\($0.rawValue)") } ?? 0
+                return lhsIndex < rhsIndex
+            }
+    }
+
+    var customLightingSchemes: [LightingScheme] {
+        lightingSchemes.values
+            .filter { !$0.isBuiltIn }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    var selectedLightingKeys: Set<String> {
+        Set(look(for: lightingState).resolvedCanvasNames(in: lightingMap))
+    }
+
+    var lightingCanvasKeyCount: Int { lightingMap.canvasNames.count }
+
+    func lightingSelectionCount(for status: AgentStatus, agentID: String? = nil) -> Int {
+        look(for: status, agentID: agentID).resolvedCanvasNames(in: lightingMap).count
+    }
+
+    func lightingSelectionIsAll(for status: AgentStatus, agentID: String? = nil) -> Bool {
+        look(for: status, agentID: agentID).selectedKeys == nil
+    }
+
+    func lightingRegionIsSelected(_ region: LightingCanvasRegion) -> Bool {
+        let regionNames = Set(lightingMap.names(for: region))
+        return !regionNames.isEmpty && regionNames.isSubset(of: selectedLightingKeys)
     }
 
     var mcpEndpoint: String { AK.mcpEndpoint }
     var mcpOverlayActive = false
     var mcpOverlayRemaining: TimeInterval = 0
-
-    var lightingAppliedRecently: Bool {
-        lightingAppliedAt > 0 && uptime - lightingAppliedAt < 2
-    }
 
     func start() {
         guard !didStart else { return }
@@ -174,6 +264,7 @@ final class AppModel {
     }
 
     func shutdown() {
+        persistLightingConfigurationNow()
         userStopped = true
         reconnectTask?.cancel()
         reconnectTask = nil
@@ -303,14 +394,54 @@ final class AppModel {
 
     func useForAgentLighting() {
         agentLightingEnabled = true
-        sidebar = .agents
+        navigate(to: .agents)
         persistPreferences()
     }
 
     func openLighting(for status: AgentStatus) {
-        selectedPeripheral = .keyboard
-        sidebar = .lighting
         selectLightingState(status)
+        navigate(to: .lighting)
+    }
+
+    func navigate(to destination: SidebarItem) {
+        guard sidebar != destination else {
+            if destination == .lighting {
+                beginLightingEditing()
+            }
+            return
+        }
+
+        if sidebar == .lighting {
+            endLightingEditing()
+        }
+        sidebar = destination
+        if destination == .lighting {
+            beginLightingEditing()
+        }
+    }
+
+    func beginLightingEditing() {
+        selectedPeripheral = .keyboard
+        clearCanvasPin()
+        guard !lightingPreviewActive else { return }
+        lightingPreviewActive = true
+        flushLighting()
+    }
+
+    func endLightingEditing() {
+        lightingGlyphUntil = 0
+        lightingGlyphPreviewing = false
+        persistLightingConfigurationNow()
+        clearCanvasPin()
+        guard lightingPreviewActive else { return }
+        lightingPreviewActive = false
+        flushLighting()
+    }
+
+    func finishLightingEditing() {
+        endLightingEditing()
+        sidebar = .agents
+        log("lighting", "Finished live preview and resumed automatic lighting")
     }
 
     func selectLightingState(_ status: AgentStatus) {
@@ -328,10 +459,138 @@ final class AppModel {
         lightingGlyphPreviewing = true
     }
 
+    func assignLightingScheme(_ schemeID: String) {
+        guard lightingSchemes[schemeID] != nil else { return }
+        let agentID = selectedAgentID ?? "hermes"
+        var assignments = agentSchemeAssignments[agentID] ?? [:]
+        guard assignments[lightingState] != schemeID else { return }
+        assignments[lightingState] = schemeID
+        agentSchemeAssignments[agentID] = assignments
+        syncResolvedLooks()
+        persistLightingConfigurationDebounced()
+    }
+
+    @discardableResult
+    func copyCurrentLightingLook(to statuses: [AgentStatus]) -> Int {
+        let targets = AgentStatus.allCases.filter { statuses.contains($0) && $0 != lightingState }
+        guard !targets.isEmpty else { return 0 }
+
+        let agentID = selectedAgentID ?? "hermes"
+        let sourceLook = look(for: lightingState)
+        let sourceName = lightingSchemeDisplayName(currentLightingScheme)
+        var assignments = agentSchemeAssignments[agentID] ?? [:]
+
+        for status in targets {
+            let copyMarker = AKString("Scheme Copy", locale: resolvedLocale)
+            let localizedStatus = status.localizedString(locale: resolvedLocale)
+            let name = uniqueLightingSchemeName("\(sourceName) \(copyMarker) · \(localizedStatus)")
+            let id = UUID().uuidString.lowercased()
+            lightingSchemes[id] = LightingScheme(
+                id: id,
+                name: name,
+                kind: .custom,
+                look: sourceLook
+            )
+            assignments[status] = id
+        }
+
+        agentSchemeAssignments[agentID] = assignments
+        syncResolvedLooks()
+        persistLightingConfigurationNow()
+        flushLighting()
+        log("lighting", "Copied \(lightingState.rawValue) look to \(targets.count) independent states")
+        return targets.count
+    }
+
+    @discardableResult
+    func saveCurrentLightingScheme(named rawName: String) -> String? {
+        guard let name = normalizedLightingSchemeName(rawName),
+              lightingSchemeNameIsAvailable(name)
+        else { return nil }
+        let id = UUID().uuidString.lowercased()
+        lightingSchemes[id] = LightingScheme(
+            id: id,
+            name: name,
+            kind: .custom,
+            look: look(for: lightingState)
+        )
+        assignLightingScheme(id)
+        persistLightingConfiguration()
+        return id
+    }
+
+    @discardableResult
+    func duplicateCurrentLightingScheme(named requestedName: String? = nil) -> String {
+        let source = currentLightingScheme
+        let baseName = normalizedLightingSchemeName(requestedName ?? "")
+            ?? "\(lightingSchemeDisplayName(source)) \(AKString("Scheme Copy", locale: resolvedLocale))"
+        let name = uniqueLightingSchemeName(baseName)
+        let id = UUID().uuidString.lowercased()
+        lightingSchemes[id] = LightingScheme(id: id, name: name, kind: .custom, look: source.look)
+        assignLightingScheme(id)
+        persistLightingConfiguration()
+        return id
+    }
+
+    @discardableResult
+    func renameLightingScheme(_ schemeID: String, to rawName: String) -> Bool {
+        guard var scheme = lightingSchemes[schemeID], !scheme.isBuiltIn,
+              let name = normalizedLightingSchemeName(rawName),
+              lightingSchemeNameIsAvailable(name, ignoring: schemeID)
+        else { return false }
+        guard scheme.name != name else { return true }
+        scheme.name = name
+        lightingSchemes[schemeID] = scheme
+        persistLightingConfiguration()
+        return true
+    }
+
+    @discardableResult
+    func deleteLightingScheme(_ schemeID: String) -> Bool {
+        guard let scheme = lightingSchemes[schemeID], !scheme.isBuiltIn,
+              lightingSchemeUsageCount(schemeID) == 0
+        else { return false }
+        lightingSchemes.removeValue(forKey: schemeID)
+        persistLightingConfiguration()
+        return true
+    }
+
+    func lightingSchemeUsageCount(_ schemeID: String) -> Int {
+        lightingSchemeUses(schemeID).count
+    }
+
+    func lightingSchemeUses(_ schemeID: String) -> [LightingSchemeUse] {
+        var result: [LightingSchemeUse] = []
+        for (agentID, assignments) in agentSchemeAssignments {
+            let name = AgentSpec.defaults.first(where: { $0.agentID == agentID })?.name ?? agentID
+            for status in AgentStatus.allCases where assignments[status] == schemeID {
+                result.append(.init(agentID: agentID, agentName: name, status: status))
+            }
+        }
+        return result.sorted { lhs, rhs in
+            if lhs.agentName != rhs.agentName { return lhs.agentName < rhs.agentName }
+            return (AgentStatus.allCases.firstIndex(of: lhs.status) ?? 0)
+                < (AgentStatus.allCases.firstIndex(of: rhs.status) ?? 0)
+        }
+    }
+
+    func lightingSchemeNameIsAvailable(_ rawName: String, ignoring schemeID: String? = nil) -> Bool {
+        guard let name = normalizedLightingSchemeName(rawName) else { return false }
+        return !lightingSchemes.values.contains { scheme in
+            scheme.id != schemeID
+                && lightingSchemeDisplayName(scheme).caseInsensitiveCompare(name) == .orderedSame
+        }
+    }
+
     func setEffect(_ effect: LightingEffect) {
         var look = look(for: lightingState)
         guard look.effect != effect else { return }
+        let descriptor = effect.descriptor
         look.effect = effect
+        look.parameters = descriptor.defaultParameters
+        look.speed = descriptor.defaultSpeed
+        look.palette = look.palette.normalized(for: descriptor)
+        look.normalize()
         writeLook(look)
     }
 
@@ -343,6 +602,73 @@ final class AppModel {
         var look = look(for: lightingState)
         guard look.color != rgb else { return }
         look.color = rgb
+        writeLook(look)
+    }
+
+    func setLightingColorStop(_ stopID: String, color: RGB) {
+        var look = look(for: lightingState)
+        guard let index = look.palette.stops.firstIndex(where: { $0.id == stopID }),
+              look.palette.stops[index].color != color
+        else { return }
+        look.palette.stops[index].color = color
+        writeLook(look)
+    }
+
+    func setLightingColorStopLocation(_ stopID: String, location: Double) {
+        var look = look(for: lightingState)
+        guard let index = look.palette.stops.firstIndex(where: { $0.id == stopID }),
+              index > 0,
+              index < look.palette.stops.count - 1
+        else { return }
+        let lower = look.palette.stops[index - 1].location + 0.02
+        let upper = look.palette.stops[index + 1].location - 0.02
+        look.palette.stops[index].location = Swift.min(upper, Swift.max(lower, location))
+        writeLook(look)
+    }
+
+    @discardableResult
+    func addLightingColorStop() -> String? {
+        var look = look(for: lightingState)
+        let descriptor = look.effect.descriptor
+        guard look.palette.stops.count < descriptor.maximumColorStops else { return nil }
+        let sorted = look.palette.stops.sorted { $0.location < $1.location }
+        var insertionLocation = 0.5
+        var widest = -1.0
+        if sorted.count > 1 {
+            for pair in zip(sorted, sorted.dropFirst()) {
+                let gap = pair.1.location - pair.0.location
+                if gap > widest {
+                    widest = gap
+                    insertionLocation = pair.0.location + gap / 2
+                }
+            }
+        }
+        let id = UUID().uuidString.lowercased()
+        look.palette.stops.append(
+            LightingColorStop(
+                id: id,
+                location: insertionLocation,
+                color: look.palette.color(at: insertionLocation)
+            )
+        )
+        writeLook(look)
+        return id
+    }
+
+    func removeLightingColorStop(_ stopID: String) {
+        var look = look(for: lightingState)
+        let descriptor = look.effect.descriptor
+        guard look.palette.stops.count > descriptor.minimumColorStops,
+              let index = look.palette.stops.firstIndex(where: { $0.id == stopID })
+        else { return }
+        look.palette.stops.remove(at: index)
+        writeLook(look)
+    }
+
+    func setLightingBackgroundColor(_ color: RGB) {
+        var look = look(for: lightingState)
+        guard look.effect.descriptor.allowsBackground, look.palette.background != color else { return }
+        look.palette.background = color
         writeLook(look)
     }
 
@@ -358,17 +684,100 @@ final class AppModel {
         writeLook(look)
     }
 
-    func applyLighting() {
-        selectedPeripheral = .keyboard
-        let look = look(for: lightingState)
+    func setLightingParameter(_ kind: LightingParameterKind, value: Double) {
+        var look = look(for: lightingState)
+        guard look.effect.descriptor.parameters.contains(kind) else { return }
+        switch kind {
+        case .speed:
+            look.speed = value
+        case .angle:
+            look.parameters.angleDegrees = value
+        case .width:
+            look.parameters.width = value
+        case .density:
+            look.parameters.density = value
+        case .tail:
+            look.parameters.tail = value
+        case .decay:
+            look.parameters.decay = value
+        case .minimumBrightness:
+            look.parameters.minimumBrightness = value
+        case .randomColors, .animated:
+            return
+        }
         writeLook(look)
-        agentLightingEnabled = true
-        pinnedCanvas = look
-        lightingAppliedAt = uptime
-        persistPreferences()
-        persistPinnedCanvas()
-        flushLighting()
-        log("lighting", "Applied \(selectedAgentID ?? "?") \(lightingState.rawValue)")
+    }
+
+    func setLightingToggle(_ kind: LightingParameterKind, enabled: Bool) {
+        var look = look(for: lightingState)
+        guard look.effect.descriptor.parameters.contains(kind) else { return }
+        switch kind {
+        case .randomColors:
+            look.parameters.randomColors = enabled
+        case .animated:
+            look.parameters.animated = enabled
+        case .speed, .angle, .width, .density, .tail, .decay, .minimumBrightness:
+            return
+        }
+        writeLook(look)
+    }
+
+    func resetCurrentLightingEffect() {
+        var look = look(for: lightingState)
+        let descriptor = look.effect.descriptor
+        look.parameters = descriptor.defaultParameters
+        look.palette = LightingPalette(color: look.color).normalized(for: descriptor)
+        look.speed = descriptor.defaultSpeed
+        writeLook(look)
+    }
+
+    func setLightingSelection(_ names: Set<String>) {
+        var look = look(for: lightingState)
+        let valid = Set(lightingMap.canvasNames)
+        let sanitized = names.intersection(valid)
+        look.selectedKeys = sanitized == valid ? nil : sanitized
+        writeLook(look)
+    }
+
+    func setLightingKey(_ name: String, selected: Bool) {
+        guard lightingMap.canvasNames.contains(name) else { return }
+        var names = selectedLightingKeys
+        if selected {
+            guard names.insert(name).inserted else { return }
+        } else {
+            guard names.remove(name) != nil else { return }
+        }
+        setLightingSelection(names)
+    }
+
+    func toggleLightingKey(_ name: String) {
+        setLightingKey(name, selected: !selectedLightingKeys.contains(name))
+    }
+
+    func toggleLightingRegion(_ region: LightingCanvasRegion) {
+        let regionNames = Set(lightingMap.names(for: region))
+        guard !regionNames.isEmpty else { return }
+        var names = selectedLightingKeys
+        if regionNames.isSubset(of: names) {
+            names.subtract(regionNames)
+        } else {
+            names.formUnion(regionNames)
+        }
+        setLightingSelection(names)
+    }
+
+    func selectAllLightingKeys() {
+        var look = look(for: lightingState)
+        guard look.selectedKeys != nil else { return }
+        look.selectedKeys = nil
+        writeLook(look)
+    }
+
+    func clearLightingKeys() {
+        var look = look(for: lightingState)
+        guard look.selectedKeys != [] else { return }
+        look.selectedKeys = []
+        writeLook(look)
     }
 
     func applyAppearance() {
@@ -480,6 +889,7 @@ final class AppModel {
         UserDefaults.standard.set(appearance.rawValue, forKey: Prefs.appearance)
         UserDefaults.standard.set(language.rawValue, forKey: Prefs.language)
         UserDefaults.standard.set(agentLightingEnabled, forKey: Prefs.agentLighting)
+        persistLightingConfiguration()
         persistLooks()
         persistPinnedCanvas()
     }
@@ -592,6 +1002,10 @@ final class AppModel {
         }
         loadLooks()
         loadPinnedCanvas()
+        // Snapshot pinning belonged to the previous Apply/Resume workflow.
+        // Clear a persisted legacy pin once so automatic status lighting is
+        // always authoritative outside the live editor.
+        clearCanvasPin()
     }
 
     private func persistLooks() {
@@ -606,6 +1020,21 @@ final class AppModel {
         UserDefaults.standard.set(payload, forKey: Prefs.agentLooks)
     }
 
+    private func persistLightingConfiguration() {
+        let customSchemes = lightingSchemes.values.filter { !$0.isBuiltIn }
+        let schemePayload = Dictionary(
+            uniqueKeysWithValues: customSchemes.map { ($0.id, $0.dictionary()) }
+        )
+        var assignmentPayload: [String: [String: String]] = [:]
+        for (agentID, assignments) in agentSchemeAssignments {
+            assignmentPayload[agentID] = Dictionary(
+                uniqueKeysWithValues: assignments.map { ($0.key.rawValue, $0.value) }
+            )
+        }
+        UserDefaults.standard.set(schemePayload, forKey: Prefs.lightingSchemesV2)
+        UserDefaults.standard.set(assignmentPayload, forKey: Prefs.agentSchemeAssignmentsV2)
+    }
+
     private func persistPinnedCanvas() {
         if let pinnedCanvas {
             UserDefaults.standard.set(pinnedCanvas.dictionary(), forKey: Prefs.pinnedCanvas)
@@ -615,14 +1044,63 @@ final class AppModel {
     }
 
     private func loadLooks() {
+        let legacyLooks = loadLegacyLooks()
+        let builtIns = LightingSchemeLibrary.builtIns()
+        let defaults = LightingSchemeLibrary.defaultAssignments()
+        if let storedSchemes = UserDefaults.standard.dictionary(forKey: Prefs.lightingSchemesV2),
+           let storedAssignments = UserDefaults.standard.dictionary(forKey: Prefs.agentSchemeAssignmentsV2)
+        {
+            lightingSchemes = builtIns
+            for (_, value) in storedSchemes {
+                guard let row = value as? [String: Any],
+                      let decoded = LightingScheme(dictionary: row),
+                      !decoded.isBuiltIn
+                else { continue }
+                var scheme = decoded
+                scheme.name = localizedMigratedSchemeName(scheme.name)
+                scheme.name = uniqueLightingSchemeName(scheme.name)
+                scheme.look = normalizedLook(scheme.look)
+                lightingSchemes[scheme.id] = scheme
+            }
+            agentSchemeAssignments = defaults
+            for (agentID, value) in storedAssignments {
+                guard AgentSpec.defaults.contains(where: { $0.agentID == agentID }),
+                      let rows = value as? [String: Any]
+                else { continue }
+                var assignments = agentSchemeAssignments[agentID] ?? [:]
+                for (statusRaw, schemeValue) in rows {
+                    guard let status = AgentStatus(rawValue: statusRaw),
+                          let schemeID = schemeValue as? String,
+                          lightingSchemes[schemeID] != nil
+                    else { continue }
+                    assignments[status] = schemeID
+                }
+                agentSchemeAssignments[agentID] = assignments
+            }
+            repairLightingAssignments()
+            syncResolvedLooks()
+            persistLightingConfiguration()
+            return
+        }
+
+        lightingSchemes = builtIns
+        agentSchemeAssignments = defaults
+        migrateLegacyLooks(legacyLooks)
+        repairLightingAssignments()
+        syncResolvedLooks()
+        persistLightingConfiguration()
+        persistLooks()
+    }
+
+    private func loadLegacyLooks() -> [String: [AgentStatus: StateLook]] {
         var overlay: [AgentStatus: StateLook] = [:]
         if let payload = UserDefaults.standard.dictionary(forKey: Prefs.looks) {
             for (key, value) in payload {
                 guard let status = AgentStatus(rawValue: key),
                       let row = value as? [String: Any],
-                      let look = StateLook(dictionary: row)
+                      let decoded = StateLook(dictionary: row)
                 else { continue }
-                overlay[status] = look
+                overlay[status] = normalizedLook(decoded)
             }
         }
         if let payload = UserDefaults.standard.dictionary(forKey: Prefs.agentLooks) {
@@ -633,20 +1111,21 @@ final class AppModel {
                 for (statusRaw, lookValue) in rows {
                     guard let status = AgentStatus(rawValue: statusRaw),
                           let row = lookValue as? [String: Any],
-                          let look = StateLook(dictionary: row)
+                          let decoded = StateLook(dictionary: row)
                     else { continue }
-                    looks[status] = look
+                    looks[status] = normalizedLook(decoded)
                 }
                 loaded[agentID] = looks
             }
-            agentLooks = loaded
-        } else if let numpad = numpadLooksFromLegacy() {
-            agentLooks = AgentLookBook.seeded(overlay: overlay.merging(numpad) { _, new in new })
-        } else if !overlay.isEmpty {
-            agentLooks = AgentLookBook.seeded(overlay: overlay)
-        } else {
-            agentLooks = AgentLookBook.seeded()
+            return loaded
         }
+        if let numpad = numpadLooksFromLegacy() {
+            return AgentLookBook.seeded(overlay: overlay.merging(numpad) { _, new in new })
+        }
+        if !overlay.isEmpty {
+            return AgentLookBook.seeded(overlay: overlay)
+        }
+        return AgentLookBook.seeded()
     }
 
     private func numpadLooksFromLegacy() -> [AgentStatus: StateLook]? {
@@ -657,46 +1136,161 @@ final class AppModel {
         for (statusRaw, lookValue) in rows {
             guard let status = AgentStatus(rawValue: statusRaw),
                   let row = lookValue as? [String: Any],
-                  let look = StateLook(dictionary: row)
+                  let decoded = StateLook(dictionary: row)
             else { continue }
-            looks[status] = look
+            looks[status] = normalizedLook(decoded)
         }
         return looks.isEmpty ? nil : looks
     }
 
     private func loadPinnedCanvas() {
         if let row = UserDefaults.standard.dictionary(forKey: Prefs.pinnedCanvas),
-           let look = StateLook(dictionary: row)
+           let decoded = StateLook(dictionary: row)
         {
-            pinnedCanvas = look
+            pinnedCanvas = normalizedLook(decoded)
             return
         }
         guard let payload = UserDefaults.standard.dictionary(forKey: Prefs.pinnedLooks) else { return }
         for key in ["main", "numpad", "fRow"] {
             guard let row = payload[key] as? [String: Any],
-                  let look = StateLook(dictionary: row)
+                  let decoded = StateLook(dictionary: row)
             else { continue }
-            pinnedCanvas = look
+            pinnedCanvas = normalizedLook(decoded)
             return
         }
     }
 
     private func writeLook(_ look: StateLook) {
-        let id = selectedAgentID ?? "hermes"
-        var book = agentLooks[id] ?? AgentLookBook.defaults(for: id)
-        book[lightingState] = look
-        agentLooks[id] = book
-        persistLooksDebounced()
+        let normalized = normalizedLook(look)
+        var schemeID = currentLightingSchemeID
+        if lightingSchemes[schemeID]?.isBuiltIn != false {
+            schemeID = duplicateCurrentLightingScheme()
+        }
+        guard var scheme = lightingSchemes[schemeID], scheme.look != normalized else { return }
+        scheme.look = normalized
+        lightingSchemes[schemeID] = scheme
+        syncResolvedLooks()
+        persistLightingConfigurationDebounced()
     }
 
-    /// Looks change with every slider tick; coalesce UserDefaults writes.
-    private func persistLooksDebounced() {
+    private func normalizedLook(_ look: StateLook) -> StateLook {
+        var normalized = look.normalized()
+        guard let selectedKeys = normalized.selectedKeys else { return normalized }
+        let valid = Set(lightingMap.canvasNames)
+        let sanitized = selectedKeys.intersection(valid)
+        normalized.selectedKeys = sanitized == valid ? nil : sanitized
+        return normalized
+    }
+
+    private func migrateLegacyLooks(_ legacyLooks: [String: [AgentStatus: StateLook]]) {
+        for spec in AgentSpec.defaults {
+            let defaults = AgentLookBook.defaults(for: spec.agentID)
+            for status in AgentStatus.allCases {
+                guard let legacy = legacyLooks[spec.agentID]?[status] else { continue }
+                let normalized = normalizedLook(legacy)
+                let defaultLook = normalizedLook(
+                    defaults[status]
+                        ?? StateLook.defaults[status]
+                        ?? StateLook.defaults[.idle]!
+                )
+                guard normalized != defaultLook else { continue }
+                let id = UUID().uuidString.lowercased()
+                let migrated = AKString("Migrated", locale: resolvedLocale)
+                let localizedStatus = status.localizedString(locale: resolvedLocale)
+                let suffix = resolvedLocale.identifier.hasPrefix("zh")
+                    ? "（\(migrated)）"
+                    : " (\(migrated))"
+                let name = uniqueLightingSchemeName("\(spec.name) · \(localizedStatus)\(suffix)")
+                lightingSchemes[id] = LightingScheme(id: id, name: name, kind: .custom, look: normalized)
+                var assignments = agentSchemeAssignments[spec.agentID] ?? [:]
+                assignments[status] = id
+                agentSchemeAssignments[spec.agentID] = assignments
+            }
+        }
+    }
+
+    private func repairLightingAssignments() {
+        for spec in AgentSpec.defaults {
+            var assignments = agentSchemeAssignments[spec.agentID] ?? [:]
+            for status in AgentStatus.allCases {
+                let fallbackID = LightingSchemeLibrary.builtInID(agentID: spec.agentID, status: status)
+                let schemeID = assignments[status] ?? fallbackID
+                assignments[status] = lightingSchemes[schemeID] == nil ? fallbackID : schemeID
+            }
+            agentSchemeAssignments[spec.agentID] = assignments
+        }
+    }
+
+    private func syncResolvedLooks() {
+        var resolved: [String: [AgentStatus: StateLook]] = [:]
+        for spec in AgentSpec.defaults {
+            var looks: [AgentStatus: StateLook] = [:]
+            for status in AgentStatus.allCases {
+                let fallbackID = LightingSchemeLibrary.builtInID(agentID: spec.agentID, status: status)
+                let schemeID = agentSchemeAssignments[spec.agentID]?[status] ?? fallbackID
+                let look = lightingSchemes[schemeID]?.look
+                    ?? lightingSchemes[fallbackID]?.look
+                    ?? AgentLookBook.defaults(for: spec.agentID)[status]
+                    ?? StateLook.defaults[status]
+                    ?? StateLook.defaults[.idle]!
+                looks[status] = normalizedLook(look)
+            }
+            resolved[spec.agentID] = looks
+        }
+        agentLooks = resolved
+    }
+
+    private func normalizedLightingSchemeName(_ rawName: String) -> String? {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    private func uniqueLightingSchemeName(_ baseName: String) -> String {
+        let base = normalizedLightingSchemeName(baseName)
+            ?? AKString("Custom Scheme", locale: resolvedLocale)
+        if lightingSchemeNameIsAvailable(base) { return base }
+        var suffix = 2
+        while !lightingSchemeNameIsAvailable("\(base) \(suffix)") {
+            suffix += 1
+        }
+        return "\(base) \(suffix)"
+    }
+
+    private func localizedMigratedSchemeName(_ name: String) -> String {
+        for spec in AgentSpec.defaults {
+            for status in AgentStatus.allCases {
+                let legacyNames = [
+                    "\(spec.name) · \(status.displayTitle) (Migrated)",
+                    "\(spec.name) · \(status.displayTitle) (已迁移)",
+                ]
+                guard legacyNames.contains(name) else { continue }
+                let marker = AKString("Migrated", locale: resolvedLocale)
+                let localizedStatus = status.localizedString(locale: resolvedLocale)
+                if resolvedLocale.identifier.hasPrefix("zh") {
+                    return "\(spec.name) · \(localizedStatus)（\(marker)）"
+                }
+                return "\(spec.name) · \(localizedStatus) (\(marker))"
+            }
+        }
+        return name
+    }
+
+    /// Lighting controls can fire on every slider or color-stop movement.
+    private func persistLightingConfigurationDebounced() {
         persistLooksTask?.cancel()
         persistLooksTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }
+            self?.persistLightingConfiguration()
             self?.persistLooks()
         }
+    }
+
+    private func persistLightingConfigurationNow() {
+        persistLooksTask?.cancel()
+        persistLooksTask = nil
+        persistLightingConfiguration()
+        persistLooks()
     }
 
     private func clearCanvasPin() {
@@ -705,22 +1299,11 @@ final class AppModel {
         persistPinnedCanvas()
     }
 
-    /// Drops the pinned canvas from the UI so the board follows agent
-    /// priority again. Without this the only way out of a pin was an
-    /// incoming HTTP status event, which read as "stuck" to users.
-    func releaseCanvasPin() {
-        guard pinnedCanvas != nil else { return }
-        pinnedCanvas = nil
-        persistPinnedCanvas()
-        flushLighting()
-        log("lighting", "Released canvas pin")
-    }
-
     private func lightingPreview() -> SceneRenderer.BoardPreview? {
-        guard sidebar == .lighting else { return nil }
+        guard sidebar == .lighting, lightingPreviewActive else { return nil }
         let look = look(for: lightingState)
         if lightingState == .running, uptime < lightingGlyphUntil {
-            return .glyph(agentID: selectedAgentID ?? "hermes", color: look.color.scaled(0.95))
+            return .glyph(agentID: selectedAgentID ?? "hermes", look: look)
         }
         return .canvas(look)
     }
@@ -994,6 +1577,8 @@ private enum Prefs {
     static let looks = "ak.stateLooks"
     static let zoneLooks = "ak.zoneLooks"
     static let agentLooks = "ak.agentLooks"
+    static let lightingSchemesV2 = "ak.lightingSchemes.v2"
+    static let agentSchemeAssignmentsV2 = "ak.agentSchemeAssignments.v2"
     static let pinnedLooks = "ak.pinnedLooks"
     static let pinnedCanvas = "ak.pinnedCanvas"
 }

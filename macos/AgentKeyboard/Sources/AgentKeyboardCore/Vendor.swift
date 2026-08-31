@@ -217,6 +217,19 @@ public enum LightingTarget: String, CaseIterable, Sendable, Equatable, Identifia
     public static let mouseZones: [LightingTarget] = [.wheel]
 }
 
+/// Quick-selection regions for a cookbook look. These are canvas masks, not
+/// agent assignments; F1-F6 never belong to any region.
+public enum LightingCanvasRegion: String, CaseIterable, Sendable, Equatable, Identifiable, Hashable {
+    case all
+    case main
+    case functionKeys
+    case navigation
+    case numpad
+    case logo
+
+    public var id: String { rawValue }
+}
+
 public struct LightingMap: Sendable {
     public let profile: KeyboardProfile
     public let agentKeys: [String]
@@ -227,6 +240,7 @@ public struct LightingMap: Sendable {
     public let arrows: [String]
     public let numpadBar: [String]
     public let toolCluster: [String]
+    public let navigationCluster: [String]
 
     public var rows: Int { profile.rows }
     public var cols: Int { profile.cols }
@@ -235,7 +249,7 @@ public struct LightingMap: Sendable {
     public var agentKeySet: Set<String> { Set(agentKeys) }
 
     public var canvasNames: [String] {
-        Array(Set(profile.keys.map(\.name).filter { !agentKeySet.contains($0) }))
+        orderedProfileNames.filter { !agentKeySet.contains($0) }
     }
 
     public init(
@@ -247,7 +261,8 @@ public struct LightingMap: Sendable {
         space: String,
         arrows: [String],
         numpadBar: [String],
-        toolCluster: [String]
+        toolCluster: [String],
+        navigationCluster: [String]
     ) {
         self.profile = profile
         self.agentKeys = agentKeys
@@ -258,6 +273,7 @@ public struct LightingMap: Sendable {
         self.arrows = arrows
         self.numpadBar = numpadBar
         self.toolCluster = toolCluster
+        self.navigationCluster = navigationCluster
     }
 
     public func names(for zone: LightingZone) -> [String] {
@@ -283,11 +299,46 @@ public struct LightingMap: Sendable {
         case .wheel:
             return []
         case .all:
-            return Array(Set(profile.keys.map(\.name)))
+            return orderedProfileNames
         case .main:
             let skip = Set(fRow + numpadBar + ["Logo"])
-            return Array(Set(profile.keys.map(\.name).filter { !skip.contains($0) }))
+            return orderedProfileNames.filter { !skip.contains($0) }
         }
+    }
+
+    public func names(for region: LightingCanvasRegion) -> [String] {
+        switch region {
+        case .all:
+            return canvasNames
+        case .main:
+            let skip = Set(fRow + navigationCluster + arrows + numpadBar + ["Logo"])
+            return canvasNames.filter { !skip.contains($0) }
+        case .functionKeys:
+            return canvasSubset(fRow)
+        case .navigation:
+            return canvasSubset(navigationCluster + arrows)
+        case .numpad:
+            return canvasSubset(numpadBar)
+        case .logo:
+            return canvasSubset(["Logo"])
+        }
+    }
+
+    private var orderedProfileNames: [String] {
+        let ordered = profile.keys.sorted {
+            if $0.row != $1.row { return $0.row < $1.row }
+            if $0.col != $1.col { return $0.col < $1.col }
+            return $0.index < $1.index
+        }
+        var seen: Set<String> = []
+        return ordered.compactMap { key in
+            seen.insert(key.name).inserted ? key.name : nil
+        }
+    }
+
+    private func canvasSubset(_ names: [String]) -> [String] {
+        let requested = Set(names)
+        return canvasNames.filter { requested.contains($0) }
     }
 
     public static let scopeII = LightingMap.scopeII(profile: .scopeII)
@@ -307,7 +358,11 @@ public struct LightingMap: Sendable {
                 "NUMPAD_ENTER", "NUMPAD_PLUS", "NUMPAD_MINUS", "NUMPAD_TIMES",
                 "NUMPAD_DIVIDE", "NUMPAD_LOCK",
             ],
-            toolCluster: ["Q", "W", "E", "A", "S", "D", "Z", "X", "C"]
+            toolCluster: ["Q", "W", "E", "A", "S", "D", "Z", "X", "C"],
+            navigationCluster: [
+                "PRINT_SCREEN", "SCROLL_LOCK", "PAUSE_BREAK",
+                "INSERT", "HOME", "PAGE_UP", "DELETE", "END", "PAGE_DOWN",
+            ]
         )
     }
 }

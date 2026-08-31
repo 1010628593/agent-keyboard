@@ -167,7 +167,13 @@ HTTP：`GET /lighting/layout`、`POST /lighting/keys`、`POST /lighting/frames`�
 
 同一套仪表盘也在 `macos/AgentKeyboard` 里，是原生 SwiftUI 应用：IOKit HID、32 FPS 预览、oMLX 风格侧栏（Dashboard / Agents / Lighting / Bridge / Devices / Logs）、菜单栏图标、设置，以及同样的 HTTP 约定 `127.0.0.1:7420`。驱动按厂商可插拔；本构建只实现 **ASUS / ROG Aura Direct**（Scope II RX/NX 已映射；其它 TUF/ROG 列为未映射）。Aura 集合同一时刻只能被一个进程占用——启动应用前先停掉 `python -m agent_keyboard serve`。
 
+灯光工作台会在一个界面中固定显示六个智能体、六种可编辑状态、完整键盘和常驻属性面板。进入工作台后，每次修改都会实时预览到已连接键盘并自动保存；点击**完成**或离开页面/窗口时，立即恢复按智能体状态自动显示。每个智能体状态绑定一个命名方案；方案完整保存灯效、1–5 个色标、灯效专属参数、亮度、速度和逐键选区。自定义方案仍可作为共享引用；**复制到其他状态**会为每个目标状态创建包含按键选区的独立方案。内置方案首次修改时会自动生成副本。F1–F6 始终锁定为身份灯，不进入可编辑选区。
+
+16 种 cookbook 灯效只显示真实参与渲染的参数，例如空间灯效的角度/宽度、粒子灯效的密度/尾迹、瞬态灯效的衰减/背景色，以及渐变的可定位色标。这是参考奥创中心基础属性面板的单设备编辑器，不支持按键功能重映射、按区域分配智能体、Aura Sync、方案导入导出或 Aura Creator 时间轴。
+
 Bridge → 安装可用钩子 会把 1 秒超时、即发即忘的 `notify.sh` 插到 Codex / Claude / Cursor / Hermes 配置最前面，不会替换 mnemon/memmy。应用启动时也会做这件事。Pi 使用 `hooks/pi-hooks.yaml`；Workbuddy 仅在 `~/.codebuddy/settings.json` 存在时安装。
+
+Codex 会把 `~/.codex/hooks.json` 里的新命令标记为未信任。需要在 Codex 中打开一次 `/hooks`，信任 `~/.codex/hooks/agent-keyboard.sh` 对应的条目；启用但未信任的钩子会被跳过，F1 会一直保持空闲。
 
 ```bash
 ./hooks/notify.sh codex SessionStart

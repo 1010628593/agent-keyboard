@@ -4,12 +4,12 @@ Agent Light 不是 Agent 管理器，也不是 RGB 管家。它只做一件事�
 
 ```text
 Agent
-  │ color scheme
+  │ state assignment
   ▼
 Cookbook (Idle / Thinking / Tool / Approval / Done / Error)
-  │
+  │ named shared scheme
   ├─ F1–F6          identity lamps
-  └─ Main + Numpad  priority canvas
+  └─ Selected keys  priority canvas
 ```
 
 产品只有三页。设置和菜单栏是 Utility 外壳，不是产品功能。
@@ -18,7 +18,7 @@ Cookbook (Idle / Thinking / Tool / Approval / Done / Error)
 | --- | --- |
 | Devices | 哪些 RGB 外设可用？ |
 | Agents | 哪个 Agent 在 F 键上、用哪套配色？ |
-| Lighting | 这套配色怎么铺满键盘？ |
+| Lighting | 这套配色用什么参数、作用在哪些键？ |
 
 ---
 
@@ -71,15 +71,41 @@ Agent 进入 Thinking 时，主键区先用像素字帖打出该 Agent 的字母
 
 ## Lighting
 
-按整板画布思维：设备 → 灯效。配色属于选中的 Agent，铺满主键区和数字键盘。
+按配色画布思维：智能体 → 状态 → 命名方案 → 按键选区与灯效。每个状态保存一个方案 ID；方案保存颜色/渐变、灯效专属参数、亮度、速度和选区。旧配置会迁移为内置绑定或“已迁移”自定义方案；缺少选区字段时默认使用除 F1–F6 外的全部画布。
+
+### 方案库
+
+- 内置方案 ID 固定为 `builtin.<agentID>.<status>`，保持各智能体现有默认色与状态灯效，只读；首次修改时自动生成副本并只重新绑定当前状态。
+- 自定义方案是共享引用。一个方案可被多个智能体状态使用，颜色、参数和选区的修改会同步到所有使用位置；界面显示数量和具体使用位置。
+- “复制为独立方案”会解除当前状态与共享方案的连带编辑。方案名称去除首尾空白、不能为空、忽略大小写后不可重复。
+- 被任何状态引用的方案不能删除；未引用方案需确认后删除。绑定和编辑即时持久化。
+- “复制到其他状态”复制当前完整 `StateLook`（灯效、色板、参数、亮度、速度和按键选区），并为每个目标状态创建独立自定义方案，后续修改互不联动。
 
 灯效：Static / Breathing / Wave / Ripple / Comet / Meteor / Flow / Rain / Scanner / Sparkle / Aurora / Gradient / Rainbow / Heartbeat / Reactive / Off
 
+| 灯效组 | 属性 |
+| --- | --- |
+| Static | 单色、亮度 |
+| Breathing / Heartbeat | 1–2 色、最低亮度、速度 |
+| Wave / Flow / Aurora | 2–5 色渐变、角度、宽度/尺度、速度 |
+| Ripple / Scanner / Reactive | 前景/背景色、宽度或衰减、速度 |
+| Comet | 2–5 色、角度、尾迹、速度 |
+| Meteor / Rain | 前景/背景色、角度、密度、尾迹、速度 |
+| Sparkle | 前景/背景色、密度、随机颜色、速度 |
+| Gradient | 2–5 个可定位色标、角度、动画开关；动画开启后显示速度 |
+| Rainbow | 固定 Aura 光谱、角度、带宽、速度 |
+| Off | 不显示颜色和动态参数 |
+
 - 空间类灯效（Wave、Ripple、Comet、Meteor、Flow、Rain、Scanner、Aurora、Gradient、Rainbow）在单键灯区（F1–F6 身份灯）自动退化为呼吸，保证身份灯平滑。
 - 状态默认搭配：Thinking → Comet、Tool → Ripple、Approval → Heartbeat、Done → Static、Error → Reactive。
-- 规则预览面板内可直接换灯效、取色（6 色板 + 自定义）；Apply 钉住画布后可用"恢复自动"解除。
+- 主页面固定为左右工作台：左侧六个 Agent、六种状态、完整键盘和按键范围入口，右侧常驻当前 Agent/状态、方案、灯效、颜色与属性。方案库和跨状态复制使用弹层，不再把主流程推到折叠区或页面下方。
+- 进入 Lighting 即开启真实键盘实时预览，修改自动持久化；点击“完成”、切换侧栏或关闭窗口都会结束预览并恢复自动状态灯光。旧版 `Apply Lighting` / `Resume Auto` 快照钉住流程仅在启动迁移时清理，不再产生新快照。
+- 颜色编辑包含 6 色板、自定义取色、Hex、背景色和渐变色标；灯效缩略图直接调用正式渲染器，并遵守“减少动态效果”。
+- 键盘默认用于预览；点击“编辑按键范围”才进入选区模式。选区支持全部、主键区、F7–F12、导航与方向键、数字键盘和 Logo 快捷区域，也支持单击或拖动逐键添加、擦除。
+- F1–F6 始终锁定为智能体身份灯，不进入任何 cookbook 选区；方案生效时，未选按键完全熄灭。
+- Thinking 启动字帖只在该状态已选按键内显示，然后进入当前灯效。
 
-右侧参数：颜色、亮度、速度。选 Thinking 时可预览启动字帖。
+右侧属性面板是 Lighting 的唯一编辑入口；全局 Inspector 在此页隐藏，避免出现双重右栏。选 Thinking 时可预览启动字帖。
 
 Agent 状态是预设映射层，不在每次配灯时重选：
 
@@ -92,7 +118,7 @@ Done      → 灯效 E
 Error     → 灯效 F
 ```
 
-Apply Lighting 把当前状态的方案钉在画布上；HTTP 状态到来后改由该 Agent 的 cookbook 接管。看门狗 idle 不会清掉钉子。
+Lighting 实时预览优先于 cookbook，离开工作台后立即交还给按优先级渲染的 Agent 状态。HTTP、看门狗和 MCP 临时像素层协议保持不变；MCP 预览租约仍在到期后交还 cookbook。
 
 鼠标只做预览，不写入 HID。
 
@@ -108,4 +134,4 @@ HTTP `127.0.0.1:7420`（含 `POST /mcp`）、HID 重连、钩子安装、MCP 配
 
 ## 不做
 
-Agent Prompt / Model / Token、Agent 生命周期、Dashboard、Scenes、Automations、Rule Engine、Analytics、Runtime Health、Bridge 页、Logs 页、Agent 创建器、DPI、按键映射、固件升级、用户自绘字帖。
+Agent Prompt / Model / Token、Agent 生命周期、Dashboard、Scenes、Automations、Rule Engine、Analytics、Runtime Health、Bridge 页、Logs 页、Agent 创建器、DPI、按键功能重映射、按灯区分配智能体、固件升级、用户自绘字帖、Aura Creator 多层时间轴、Aura Sync 多设备同步、音乐响应、屏幕取色、AI Aura、方案导入导出与云同步。

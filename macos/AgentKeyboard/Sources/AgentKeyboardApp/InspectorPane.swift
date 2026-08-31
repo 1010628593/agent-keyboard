@@ -122,7 +122,6 @@ struct DeviceInspector: View {
 
 struct AssignmentInspector: View {
     @Environment(AppModel.self) private var model
-    @State private var showStateLooks = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -143,14 +142,13 @@ struct AssignmentInspector: View {
             deviceBlock
             keyBlock
             statusFeed
-            stateColors
         }
     }
 
     private func agentBlock(_ profile: AgentProfile) -> some View {
         let slot = model.dashboard.slot(forAgentID: profile.id)
         return HStack(alignment: .top, spacing: 10) {
-            AgentGlyph(symbol: profile.symbol, tint: (slot?.status ?? .idle).tint, size: 36)
+            AgentBrandIcon(agentID: profile.id, size: 36)
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Circle().fill((slot?.status ?? .idle).tint).frame(width: 7, height: 7)
@@ -236,86 +234,4 @@ struct AssignmentInspector: View {
         .akCard()
     }
 
-    private var stateColors: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button {
-                showStateLooks = true
-            } label: {
-                Text(AKL("Agent State Colors"))
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-            }
-            .buttonStyle(.plain)
-            .popover(isPresented: $showStateLooks, arrowEdge: .leading) {
-                AgentStateLooksPopover { status in
-                    showStateLooks = false
-                    model.openLighting(for: status)
-                }
-                .padding(16)
-                .frame(width: 280)
-            }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 8)], spacing: 8) {
-                ForEach(AgentStatus.allCases) { status in
-                    Button {
-                        model.openLighting(for: status)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Circle()
-                                .fill(model.look(for: status).color.color)
-                                .frame(width: 14, height: 14)
-                            Text(status.localizedTitle)
-                                .font(.caption)
-                                .foregroundStyle(.primary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
-                        .background(AKTheme.inset, in: .rect(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .akCard()
-    }
-}
-
-struct AgentStateLooksPopover: View {
-    @Environment(AppModel.self) private var model
-    var onSelect: (AgentStatus) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(AKL("Agent Lighting"))
-                .font(.headline)
-            ForEach(AgentStatus.allCases) { status in
-                let look = model.look(for: status)
-                Button {
-                    onSelect(status)
-                } label: {
-                    HStack {
-                        Circle()
-                            .fill(look.color.color)
-                            .frame(width: 12, height: 12)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(status.localizedTitle)
-                                .font(.callout.weight(.medium))
-                            HStack(spacing: 4) {
-                                Text(look.localizedPaletteName)
-                                Text("·")
-                                Text(look.effect.localizedTitle)
-                            }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.vertical, 4)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
 }

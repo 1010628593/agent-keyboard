@@ -110,7 +110,8 @@ public enum HookEventMapper {
              "userpromptsubmit", "user_prompt_submit", "beforesubmitprompt",
              "pre_llm_call", "running", "thinking", "afteragentthought":
             return .running
-        case "pretooluse", "pre_tool_use", "pre_tool_call", "post_tool_call",
+        case "pretooluse", "pre_tool_use", "posttooluse", "post_tool_use",
+             "pre_tool_call", "post_tool_call",
              "beforeshellexecution", "beforemcpexecution", "tool", "tool_calling":
             return .tool
         case "permissionrequest", "pre_approval_request", "notification", "approval":
@@ -431,7 +432,7 @@ public enum HookInstaller {
                 "PreToolUse": "tool",
                 "PermissionRequest": "approval",
                 "Stop": "done",
-                "PostToolUseFailure": "error",
+                "PostToolUse": "tool",
             ],
             agent: "codex",
             createIfMissing: true,
@@ -856,7 +857,7 @@ public enum HookInstaller {
     case "$EVENT_KEY" in
       sessionstart|session_start|on_session_start|userpromptsubmit|user_prompt_submit|beforesubmitprompt|pre_llm_call|running|thinking|afteragentthought)
         STATUS=running ;;
-      pretooluse|pre_tool_use|pre_tool_call|post_tool_call|beforeshellexecution|beforemcpexecution|tool)
+      pretooluse|pre_tool_use|posttooluse|post_tool_use|pre_tool_call|post_tool_call|beforeshellexecution|beforemcpexecution|tool)
         STATUS=tool ;;
       permissionrequest|pre_approval_request|notification|approval)
         STATUS=approval ;;

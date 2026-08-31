@@ -1,4 +1,5 @@
 import AgentKeyboardCore
+import AppKit
 import SwiftUI
 
 struct StatusPill: View {
@@ -45,7 +46,56 @@ struct AgentGlyph: View {
     }
 }
 
+/// The product identity for an agent. Status is intentionally rendered by a
+/// separate control so a brand mark never has to double as a state indicator.
+struct AgentBrandIcon: View {
+    let agentID: String
+    var size: CGFloat = 36
+
+    var body: some View {
+        Group {
+            if let brandImage {
+                Image(nsImage: brandImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+            } else {
+                Image(systemName: "person.crop.square")
+                    .resizable()
+                    .scaledToFit()
+                    .padding(size * 0.22)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(.rect(cornerRadius: size * 0.22))
+        .accessibilityHidden(true)
+    }
+
+    private var assetName: String? {
+        switch agentID.lowercased() {
+        case "codex": "AgentIconCodex"
+        case "claude": "AgentIconClaude"
+        case "cursor": "AgentIconCursor"
+        case "hermes": "AgentIconHermes"
+        case "pi": "AgentIconPi"
+        case "workbuddy": "AgentIconWorkbuddy"
+        default: nil
+        }
+    }
+
+    private var brandImage: NSImage? {
+        guard let assetName,
+              let url = Bundle.module.url(forResource: assetName, withExtension: "png")
+        else { return nil }
+        return NSImage(contentsOf: url)
+    }
+}
+
 #Preview("Glyph") {
-    AgentGlyph(symbol: "shield.fill", tint: AKTheme.accent, size: 36)
+    HStack {
+        AgentGlyph(symbol: "shield.fill", tint: AKTheme.accent, size: 36)
+        AgentBrandIcon(agentID: "codex", size: 36)
+    }
         .padding()
 }

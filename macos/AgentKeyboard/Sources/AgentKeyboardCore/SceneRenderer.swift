@@ -129,7 +129,7 @@ public enum SceneRenderer {
 
     public enum BoardPreview: Equatable, Sendable {
         case canvas(StateLook)
-        case glyph(agentID: String, color: RGB)
+        case glyph(agentID: String, look: StateLook)
     }
 
     public static func renderBoard(
@@ -147,31 +147,29 @@ public enum SceneRenderer {
         let canvas = map.canvasNames
         let dim = RGB.white.scaled(idleWhite * 0.35)
 
-        if case let .glyph(agentID, color) = preview {
-            dimCanvas(&fb, names: canvas, dim: dim)
-            paintGlyph(&fb, agentID: agentID, color: color)
+        if case let .glyph(agentID, look) = preview {
+            paintGlyphPreview(&fb, agentID: agentID, look: look, canvas: canvas, dim: dim)
         } else if case let .canvas(look) = preview {
-            paintZone(&fb, names: canvas, look: look, now: now)
+            paintCanvasLook(&fb, look: look, canvas: canvas, now: now)
         } else if let primary = dashboard.primary,
                   let until = primary.glyphUntil,
                   now < until
         {
-            dimCanvas(&fb, names: canvas, dim: dim)
-            let color = AgentLookBook.look(
+            let look = AgentLookBook.look(
                 agentID: primary.spec.agentID,
                 status: .running,
                 book: looks
-            ).color.scaled(0.95)
-            paintGlyph(&fb, agentID: primary.spec.agentID, color: color)
+            )
+            paintGlyphPreview(&fb, agentID: primary.spec.agentID, look: look, canvas: canvas, dim: dim)
         } else if let pinnedCanvas {
-            paintZone(&fb, names: canvas, look: pinnedCanvas, now: now)
+            paintCanvasLook(&fb, look: pinnedCanvas, canvas: canvas, now: now)
         } else if let primary = dashboard.primary {
             let look = AgentLookBook.look(
                 agentID: primary.spec.agentID,
                 status: primary.status,
                 book: looks
             )
-            paintZone(&fb, names: canvas, look: look, now: now)
+            paintCanvasLook(&fb, look: look, canvas: canvas, now: now)
         }
 
         for slot in dashboard.slots where slot.isAssigned {
@@ -180,10 +178,10 @@ public enum SceneRenderer {
                 status: slot.status,
                 book: looks
             )
-            if slot.status == .idle {
-                look.effect = .staticFill
-                look.brightness = min(look.brightness, 0.08)
-            }
+            // Identity lamps inherit the scheme's state effect, brightness,
+            // and first color only. Gradient stops/background colors remain
+            // exclusive to the editable canvas.
+            look.palette = LightingPalette(color: look.color)
             paintZone(&fb, names: [slot.spec.keyName], look: look, now: now)
         }
 
@@ -199,7 +197,40 @@ public enum SceneRenderer {
         }
     }
 
-    private static func paintGlyph(_ fb: inout Framebuffer, agentID: String, color: RGB) {
+    private static func paintCanvasLook(
+        _ fb: inout Framebuffer,
+        look: StateLook,
+        canvas: [String],
+        now: TimeInterval
+    ) {
+        dimCanvas(&fb, names: canvas, dim: .black)
+        paintZone(&fb, names: look.resolvedCanvasNames(in: fb.map), look: look, now: now)
+    }
+
+    private static func paintGlyphPreview(
+        _ fb: inout Framebuffer,
+        agentID: String,
+        look: StateLook,
+        canvas: [String],
+        dim: RGB
+    ) {
+        let selected = look.resolvedCanvasNames(in: fb.map)
+        dimCanvas(&fb, names: canvas, dim: .black)
+        dimCanvas(&fb, names: selected, dim: dim)
+        paintGlyph(
+            &fb,
+            agentID: agentID,
+            color: look.color.scaled(0.95),
+            allowedNames: Set(selected)
+        )
+    }
+
+    private static func paintGlyph(
+        _ fb: inout Framebuffer,
+        agentID: String,
+        color: RGB,
+        allowedNames: Set<String>
+    ) {
         let glyph = KeyGlyph.forAgent(agentID)
         for y in 0..<KeyGlyph.size {
             for x in 0..<KeyGlyph.size {
@@ -207,6 +238,7 @@ public enum SceneRenderer {
                 let row = KeyGlyph.originRow + y
                 let col = KeyGlyph.originCol + x
                 for key in fb.map.profile.keys where key.row == row && key.col == col {
+                    guard allowedNames.contains(key.name) else { continue }
                     fb.set(key.index, color)
                 }
             }
@@ -221,7 +253,6 @@ public enum SceneRenderer {
     ) {
         guard !names.isEmpty else { return }
         let t = now * Swift.max(0.25, look.speed)
-        let base = look.color.scaled(look.brightness)
         let keys = names.flatMap { name in
             fb.map.profile.indices(named: name).map { fb.map.profile.key(at: $0) }
         }
@@ -230,281 +261,236 @@ public enum SceneRenderer {
         // Spatial effects read poorly on a single-key zone (F1–F6 lamps);
         // downgrade them to a smooth breathing pulse there.
         var effect = look.effect
-        let loCol = keys.map(\.col).min() ?? 0
-        let hiCol = keys.map(\.col).max() ?? 0
-        if effect.needsSpatialSpan, hiCol - loCol < 2 {
+        let colSpan = (keys.map(\.col).max() ?? 0) - (keys.map(\.col).min() ?? 0)
+        if effect.needsSpatialSpan, colSpan < 2 {
             effect = .breathing
         }
+        let samples = spatialSamples(keys: keys, angleDegrees: look.parameters.angleDegrees)
+        let background = (look.palette.background ?? .black).scaled(look.brightness)
 
         switch effect {
         case .off:
-            for key in keys {
-                fb.set(key.index, RGB.white.scaled(0.03))
+            for sample in samples {
+                fb.set(sample.key.index, .black)
             }
         case .staticFill:
-            for key in keys {
-                fb.overlay(key.index, base)
+            for sample in samples {
+                paintSample(&fb, sample: sample, color: look.color, intensity: 1, look: look, background: background)
             }
         case .breathing:
-            let k = 0.30 + 0.70 * easeBreath(t, period: 2.6)
-            for key in keys {
-                fb.overlay(key.index, base.scaled(k))
+            let breath = easeBreath(t, period: 2.6)
+            let intensity = look.parameters.minimumBrightness
+                + (1 - look.parameters.minimumBrightness) * breath
+            let color = look.palette.color(at: breath)
+            for sample in samples {
+                paintSample(&fb, sample: sample, color: color, intensity: intensity, look: look, background: background)
             }
         case .wave:
-            paintZoneWave(&fb, keys: keys, base: base, t: t, loCol: loCol, hiCol: hiCol)
+            let phase = fractional(t * 0.18)
+            let sigma = 0.025 + look.parameters.width * 0.18
+            for sample in samples {
+                let glow = Swift.max(
+                    gauss(wrapDist(sample.projected, phase), sigma),
+                    0.62 * gauss(wrapDist(sample.projected, fractional(phase + 0.52)), sigma * 1.25)
+                )
+                let color = look.palette.color(at: fractional(sample.projected - phase + 0.5))
+                paintSample(&fb, sample: sample, color: color, intensity: 0.06 + glow * 0.94, look: look, background: background)
+            }
         case .ripple:
-            paintZoneRipple(&fb, keys: keys, base: base, t: t)
+            let phase = fractional(t * 0.32)
+            let sigma = 0.018 + look.parameters.width * 0.14
+            let fade = 1 - phase * look.parameters.decay
+            for sample in samples {
+                let distance = hypot(sample.horizontal - 0.5, sample.vertical - 0.5) / 0.71
+                let glow = gauss(distance - phase, sigma) * fade
+                let color = look.palette.color(at: phase)
+                paintSample(&fb, sample: sample, color: color, intensity: glow, look: look, background: background)
+            }
         case .comet:
-            paintZoneComet(&fb, keys: keys, base: base, t: t, loCol: loCol, hiCol: hiCol)
+            let head = fractional(t * 0.22)
+            let tail = 0.04 + look.parameters.tail * 0.55
+            for sample in samples {
+                let behind = fractional(head - sample.projected)
+                let headGlow = gauss(wrapDist(sample.projected, head), 0.025)
+                let tailGlow = behind < tail ? exp(-behind / Swift.max(0.02, tail * 0.35)) : 0
+                let glow = Swift.max(headGlow, tailGlow)
+                let color = look.palette.color(at: Swift.min(1, behind / tail))
+                paintSample(&fb, sample: sample, color: color, intensity: glow, look: look, background: background)
+            }
         case .meteor:
-            paintZoneMeteor(&fb, keys: keys, base: base, t: t, loCol: loCol, hiCol: hiCol)
+            paintParticles(
+                &fb,
+                samples: samples,
+                look: look,
+                background: background,
+                t: t,
+                verticalBias: false
+            )
         case .flow:
-            paintZoneFlow(&fb, keys: keys, base: base, t: t, loCol: loCol, hiCol: hiCol)
+            let scale = 2.5 + (1 - look.parameters.width) * 7
+            for sample in samples {
+                let shifted = fractional(sample.projected - t * 0.12)
+                let crest = 0.5 + 0.5 * sin((sample.projected * scale + sample.perpendicular * 1.8 - t * 0.42) * 2 * .pi)
+                let second = 0.5 + 0.5 * sin((sample.projected * scale * 1.7 - sample.perpendicular * 2.2 - t * 0.58 + 0.35) * 2 * .pi)
+                let intensity = 0.12 + 0.88 * pow(crest * 0.65 + second * 0.35, 2)
+                let color = look.palette.color(at: shifted)
+                paintSample(&fb, sample: sample, color: color, intensity: intensity, look: look, background: background)
+            }
         case .rain:
-            paintZoneRain(&fb, keys: keys, base: base, t: t, loCol: loCol, hiCol: hiCol)
+            paintParticles(
+                &fb,
+                samples: samples,
+                look: look,
+                background: background,
+                t: t,
+                verticalBias: true
+            )
         case .scanner:
-            paintZoneScanner(&fb, keys: keys, base: base, t: t, loCol: loCol, hiCol: hiCol)
+            let cycle = fractional(t * 0.22) * 2
+            let head = cycle <= 1 ? cycle : 2 - cycle
+            let sigma = 0.02 + look.parameters.width * 0.2
+            for sample in samples {
+                let glow = gauss(sample.projected - head, sigma)
+                paintSample(&fb, sample: sample, color: look.color, intensity: glow, look: look, background: background)
+            }
         case .sparkle:
-            for key in keys {
-                let h = hash01(key.index)
-                let twinkle = pow(Swift.max(0, sin(t * (1.1 + h * 2.4) + h * 6.283)), 6)
-                let color = RGB.lerp(base, .white, twinkle * 0.35)
-                fb.overlay(key.index, color.scaled(0.14 + 0.86 * twinkle))
+            for sample in samples {
+                let seed = hash01(sample.key.index &* 31 &+ 17)
+                let active = seed <= 0.18 + look.parameters.density * 0.78
+                let twinkle = active
+                    ? pow(Swift.max(0, sin(t * (1.2 + seed * 2.8) + seed * 2 * .pi)), 6)
+                    : 0
+                let color = look.parameters.randomColors
+                    ? RGB.hsv(seed + fractional(t * 0.025))
+                    : look.palette.color(at: seed)
+                paintSample(&fb, sample: sample, color: color, intensity: twinkle, look: look, background: background)
             }
         case .aurora:
-            let hueBase = look.color.hue
-            for key in keys {
-                let hue = hueBase
-                    + 0.10 * sin(Double(key.col) * 0.35 + t * 0.9)
-                    + 0.05 * sin(Double(key.row) * 1.1 - t * 0.5)
-                let curtain = 0.5 + 0.5 * sin(Double(key.col) * 0.22 - t * 0.7 + Double(key.row) * 0.5)
-                let value = look.brightness * (0.30 + 0.70 * curtain)
-                fb.set(key.index, RGB.hsv(hue, saturation: 0.75, value: value))
+            let scale = 1.5 + (1 - look.parameters.width) * 5
+            for sample in samples {
+                let drift = 0.08 * sin((sample.perpendicular * 2.4 + t * 0.13) * 2 * .pi)
+                let location = fractional(sample.projected + drift - t * 0.035)
+                let curtain = 0.5 + 0.5 * sin((sample.projected * scale + sample.perpendicular * 1.5 - t * 0.18) * 2 * .pi)
+                let color = look.palette.color(at: location)
+                paintSample(&fb, sample: sample, color: color, intensity: 0.22 + curtain * 0.78, look: look, background: background)
             }
         case .gradient:
-            let hueBase = look.color.hue
-            let span = Double(Swift.max(1, hiCol - loCol))
-            let flow = easeBreath(t, period: 3.2)
-            for key in keys {
-                let u = Double(key.col - loCol) / span
-                let hue = hueBase + (u - 0.5) * 0.22 + t * 0.03
-                let value = look.brightness * (0.55 + 0.45 * flow)
-                fb.set(key.index, RGB.hsv(hue, saturation: 0.8, value: value))
+            for sample in samples {
+                let location = look.parameters.animated
+                    ? fractional(sample.projected - t * 0.035)
+                    : sample.projected
+                let color = look.palette.color(at: location)
+                paintSample(&fb, sample: sample, color: color, intensity: 1, look: look, background: background)
             }
         case .rainbow:
-            for key in keys {
-                let hue = Double(key.col) / Double(Swift.max(1, fb.map.cols))
-                    + Double(key.row) * 0.03 + t * 0.07
-                let value = look.brightness * (0.72 + 0.28 * easeBreath(t + Double(key.row) * 0.3, period: 3.4))
-                fb.set(key.index, RGB.hsv(hue, saturation: 0.85, value: value))
+            let span = 0.35 + look.parameters.width * 1.65
+            for sample in samples {
+                let hue = sample.projected / span - t * 0.045
+                paintSample(&fb, sample: sample, color: RGB.hsv(hue), intensity: 1, look: look, background: background)
             }
         case .heartbeat:
             let ph = t.truncatingRemainder(dividingBy: 1.7)
             let env = Swift.min(1, gauss(ph, 0.07) + 0.65 * gauss(ph - 0.26, 0.08))
-            let k = 0.18 + 0.82 * env
-            for key in keys {
-                fb.overlay(key.index, base.scaled(k))
+            let intensity = look.parameters.minimumBrightness
+                + (1 - look.parameters.minimumBrightness) * env
+            let color = look.palette.color(at: env)
+            for sample in samples {
+                paintSample(&fb, sample: sample, color: color, intensity: intensity, look: look, background: background)
             }
         case .reactive:
             let ph = t.truncatingRemainder(dividingBy: 0.7) / 0.7
-            let k = 0.12 + 0.88 * exp(-ph * 5.5)
-            for key in keys {
-                fb.overlay(key.index, base.scaled(k))
+            let falloff = 2 + look.parameters.decay * 8
+            let intensity = exp(-ph * falloff)
+            for sample in samples {
+                paintSample(&fb, sample: sample, color: look.color, intensity: intensity, look: look, background: background)
             }
         }
     }
 
-    /// Diagonal double wave: a bright front sweeping left→right plus a fainter
-    /// counter-wave, both with soft gaussian tails.
-    private static func paintZoneWave(
-        _ fb: inout Framebuffer,
-        keys: [LedKey],
-        base: RGB,
-        t: TimeInterval,
-        loCol: Int,
-        hiCol: Int
-    ) {
-        let span = Double(Swift.max(1, hiCol - loCol)) + 2.7
-        let p1 = (t * 0.22).truncatingRemainder(dividingBy: 1)
-        let p2 = (0.5 - t * 0.13).truncatingRemainder(dividingBy: 1)
-        for key in keys {
-            let u = (Double(key.col - loCol) + Double(key.row) * 0.45) / span
-            let glow = Swift.max(gauss(wrapDist(u, p1), 0.07), 0.7 * gauss(wrapDist(u, p2), 0.09))
-            fb.overlay(key.index, base.scaled(Swift.max(0.10, glow)))
-        }
+    private struct LightingSpatialSample {
+        let key: LedKey
+        let horizontal: Double
+        let vertical: Double
+        let projected: Double
+        let perpendicular: Double
     }
 
-    /// Rings expanding from the zone center, fading as they reach the edge.
-    private static func paintZoneRipple(
-        _ fb: inout Framebuffer,
-        keys: [LedKey],
-        base: RGB,
-        t: TimeInterval
-    ) {
-        let rows = keys.map(\.row)
-        let cols = keys.map(\.col)
-        let centerRow = Double((rows.min() ?? 0) + (rows.max() ?? 0)) / 2
-        let centerCol = Double((cols.min() ?? 0) + (cols.max() ?? 0)) / 2
-        let maxD = hypot(centerCol - Double(cols.min() ?? 0), centerRow - Double(rows.min() ?? 0))
-        let phase = (t / 2.8).truncatingRemainder(dividingBy: 1)
-        let radius = phase * (maxD + 2.5)
-        let fade = 1 - phase * 0.75
-        for key in keys {
-            let d = hypot(Double(key.col) - centerCol, Double(key.row) - centerRow)
-            let ring = gauss(d - radius, 0.9) * fade
-            fb.overlay(key.index, base.scaled(Swift.max(0.12, ring)))
-        }
-    }
-
-    /// A bright head sweeping left→right with a long exponential tail,
-    /// then a dark gap before the next pass.
-    private static func paintZoneComet(
-        _ fb: inout Framebuffer,
-        keys: [LedKey],
-        base: RGB,
-        t: TimeInterval,
-        loCol: Int,
-        hiCol: Int
-    ) {
-        let span = Double(Swift.max(1, hiCol - loCol))
-        let tail = span * 0.45
-        let travel = span + tail * 2
-        let x = (t * 0.30).truncatingRemainder(dividingBy: 1) * travel - tail
-        for key in keys {
-            let d = Double(key.col - loCol) - x
-            let glow = d >= 0 ? gauss(d, 0.55) : gauss(d, tail / 2.2)
-            fb.overlay(key.index, base.scaled(Swift.max(0.15, glow)))
-        }
-    }
-
-    /// KITT-style beam bouncing between the zone edges.
-    private static func paintZoneScanner(
-        _ fb: inout Framebuffer,
-        keys: [LedKey],
-        base: RGB,
-        t: TimeInterval,
-        loCol: Int,
-        hiCol: Int
-    ) {
-        let span = Double(Swift.max(1, hiCol - loCol))
-        let cycle = (t * 0.5).truncatingRemainder(dividingBy: 2)
-        let pos = cycle <= 1 ? cycle : 2 - cycle
-        let x = Double(loCol) + pos * span
-        for key in keys {
-            let glow = gauss(Double(key.col) - x, 1.3)
-            fb.overlay(key.index, base.scaled(Swift.max(0.12, glow)))
-        }
-    }
-
-    /// Meteor shower: several meteors fall diagonally (top-right → bottom-left)
-    /// at once, each with its own period, track, and slope. Fully deterministic
-    /// per meteor index, so the pattern is stable frame-to-frame.
-    private static func paintZoneMeteor(
-        _ fb: inout Framebuffer,
-        keys: [LedKey],
-        base: RGB,
-        t: TimeInterval,
-        loCol: Int,
-        hiCol: Int
-    ) {
-        let rows = keys.map(\.row)
-        let loRow = rows.min() ?? 0
-        let hiRow = rows.max() ?? 0
-        let span = Double(Swift.max(1, hiCol - loCol))
+    private static func spatialSamples(keys: [LedKey], angleDegrees: Double) -> [LightingSpatialSample] {
+        let loCol = keys.map(\.col).min() ?? 0
+        let hiCol = keys.map(\.col).max() ?? loCol
+        let loRow = keys.map(\.row).min() ?? 0
+        let hiRow = keys.map(\.row).max() ?? loRow
+        let colSpan = Double(Swift.max(1, hiCol - loCol))
         let rowSpan = Double(Swift.max(1, hiRow - loRow))
-        let track = span + 10
-        let meteorCount = 3
-        var glowAt = [Int: Double](minimumCapacity: keys.count)
-        for m in 0..<meteorCount {
-            let h1 = hash01(m &* 7919 &+ 11)
-            let h2 = hash01(m &* 7919 &+ 137)
-            let h3 = hash01(m &* 7919 &+ 521)
-            let period = 2.0 + h1 * 1.8
-            let phase = ((t / period) + h2).truncatingRemainder(dividingBy: 1)
-            let x = span + 5 - phase * track
-            let progress = (span + 5 - x) / track
-            let headRow = Double(loRow) + progress * rowSpan * (0.45 + h3 * 0.55)
-            for key in keys {
-                let dx = Double(key.col - loCol) - x
-                let dy = (Double(key.row) - headRow) * 2.2
-                let along = dx > 0 ? gauss(hypot(dx, dy), 2.6) : gauss(hypot(dx, dy), 0.8)
-                let fade = sin(.pi * Swift.min(1, Swift.max(0, progress)))
-                let glow = along * (0.35 + 0.65 * fade)
-                if glow > (glowAt[key.index] ?? 0) {
-                    glowAt[key.index] = glow
+        let radians = angleDegrees * .pi / 180
+        let cosine = cos(radians)
+        let sine = sin(radians)
+        let raw = keys.map { key -> (LedKey, Double, Double, Double, Double) in
+            let horizontal = Double(key.col - loCol) / colSpan
+            let vertical = Double(key.row - loRow) / rowSpan
+            let projected = horizontal * cosine + vertical * sine
+            let perpendicular = -horizontal * sine + vertical * cosine
+            return (key, horizontal, vertical, projected, perpendicular)
+        }
+        let loProjected = raw.map { $0.3 }.min() ?? 0
+        let hiProjected = raw.map { $0.3 }.max() ?? 1
+        let loPerpendicular = raw.map { $0.4 }.min() ?? 0
+        let hiPerpendicular = raw.map { $0.4 }.max() ?? 1
+        let projectedSpan = Swift.max(0.0001, hiProjected - loProjected)
+        let perpendicularSpan = Swift.max(0.0001, hiPerpendicular - loPerpendicular)
+        return raw.map { item in
+            LightingSpatialSample(
+                key: item.0,
+                horizontal: item.1,
+                vertical: item.2,
+                projected: (item.3 - loProjected) / projectedSpan,
+                perpendicular: (item.4 - loPerpendicular) / perpendicularSpan
+            )
+        }
+    }
+
+    private static func paintSample(
+        _ fb: inout Framebuffer,
+        sample: LightingSpatialSample,
+        color: RGB,
+        intensity rawIntensity: Double,
+        look: StateLook,
+        background: RGB
+    ) {
+        let intensity = Swift.min(1, Swift.max(0, rawIntensity))
+        let foreground = color.scaled(look.brightness)
+        fb.set(sample.key.index, RGB.lerp(background, foreground, intensity))
+    }
+
+    private static func paintParticles(
+        _ fb: inout Framebuffer,
+        samples: [LightingSpatialSample],
+        look: StateLook,
+        background: RGB,
+        t: TimeInterval,
+        verticalBias: Bool
+    ) {
+        let particleCount = Swift.max(2, Int(2 + look.parameters.density * 10))
+        let tail = 0.025 + look.parameters.tail * 0.3
+        for sample in samples {
+            var bestGlow = 0.0
+            var bestColor = look.color
+            for particle in 0..<particleCount {
+                let seed = particle &* 104729 + (verticalBias ? 307 : 137)
+                let lane = hash01(seed)
+                let phase = fractional(t * (0.12 + hash01(seed + 11) * 0.1) + hash01(seed + 29))
+                let along = fractional(phase - sample.projected)
+                let laneSigma = verticalBias ? 0.055 : 0.075
+                let laneGlow = gauss(sample.perpendicular - lane, laneSigma)
+                let trailGlow = along < tail ? exp(-along / Swift.max(0.01, tail * 0.32)) : 0
+                let headGlow = gauss(wrapDist(sample.projected, phase), 0.018)
+                let glow = laneGlow * Swift.max(headGlow, trailGlow)
+                if glow > bestGlow {
+                    bestGlow = glow
+                    bestColor = look.palette.color(at: hash01(seed + 47))
                 }
             }
-        }
-        for key in keys {
-            fb.overlay(key.index, base.scaled(Swift.max(0.10, glowAt[key.index] ?? 0)))
-        }
-    }
-
-    /// Water flow: two traveling sine layers interfere into drifting crests.
-    /// Crest tips pick up a white highlight, troughs stay dim — reads as a
-    /// moving water surface rather than a uniform wash.
-    private static func paintZoneFlow(
-        _ fb: inout Framebuffer,
-        keys: [LedKey],
-        base: RGB,
-        t: TimeInterval,
-        loCol: Int,
-        hiCol: Int
-    ) {
-        let rows = keys.map(\.row)
-        let loRow = rows.min() ?? 0
-        let hiRow = rows.max() ?? 0
-        let span = Double(Swift.max(1, hiCol - loCol))
-        let rowSpan = Double(Swift.max(1, hiRow - loRow))
-        for key in keys {
-            let u = Double(key.col - loCol) / span
-            let v = Double(key.row - loRow) / rowSpan
-            let w1 = sin(u * 6.0 - t * 2.2 + v * 2.5)
-            let w2 = sin(u * 11.0 - t * 3.1 + v * 5.0 + 1.7)
-            let wave = (w1 * 0.6 + w2 * 0.4) * 0.5 + 0.5
-            let crest = wave * wave * wave
-            let color = RGB.lerp(base, .white, crest * 0.30)
-            fb.overlay(key.index, color.scaled(0.20 + 0.80 * crest))
-        }
-    }
-
-    /// Rain: drops fall down random columns with a short tail, fading out as
-    /// they reach the bottom row. Deterministic per drop index.
-    private static func paintZoneRain(
-        _ fb: inout Framebuffer,
-        keys: [LedKey],
-        base: RGB,
-        t: TimeInterval,
-        loCol: Int,
-        hiCol: Int
-    ) {
-        let rows = keys.map(\.row)
-        let loRow = rows.min() ?? 0
-        let hiRow = rows.max() ?? 0
-        let span = Double(Swift.max(1, hiCol - loCol))
-        let rowSpan = Double(Swift.max(1, hiRow - loRow))
-        let dropCount = Swift.max(3, Int(span / 3))
-        var glowAt = [Int: Double](minimumCapacity: keys.count)
-        for d in 0..<dropCount {
-            let h1 = hash01(d &* 104729 &+ 7)
-            let h2 = hash01(d &* 104729 &+ 199)
-            let h3 = hash01(d &* 104729 &+ 307)
-            let col = Double(loCol) + h1 * span
-            let period = 1.4 + h2 * 1.4
-            let phase = ((t / period) + h3).truncatingRemainder(dividingBy: 1)
-            let y = Double(loRow) - 1.5 + phase * (rowSpan + 3)
-            let fade = 1 - phase * 0.6
-            for key in keys {
-                guard abs(Double(key.col) - col) < 0.6 else { continue }
-                let dy = Double(key.row) - y
-                let glow = (dy <= 0 ? gauss(dy, 1.1) : gauss(dy, 0.35)) * fade
-                if glow > (glowAt[key.index] ?? 0) {
-                    glowAt[key.index] = glow
-                }
-            }
-        }
-        for key in keys {
-            fb.overlay(key.index, base.scaled(Swift.max(0.10, glowAt[key.index] ?? 0)))
+            paintSample(&fb, sample: sample, color: bestColor, intensity: bestGlow, look: look, background: background)
         }
     }
 
@@ -726,6 +712,11 @@ private func gauss(_ x: Double, _ sigma: Double) -> Double {
 private func wrapDist(_ a: Double, _ b: Double) -> Double {
     let d = abs(a - b)
     return Swift.min(d, 1 - d)
+}
+
+private func fractional(_ value: Double) -> Double {
+    let result = value.truncatingRemainder(dividingBy: 1)
+    return result < 0 ? result + 1 : result
 }
 
 /// Deterministic pseudo-random in 0..1 per key, so sparkle patterns are

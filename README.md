@@ -167,7 +167,13 @@ Connect Cursor with `.cursor/mcp.json` (this repo) or Settings → MCP → **Ins
 
 The same dashboard lives in `macos/AgentKeyboard` as a native SwiftUI app: IOKit HID, 32 FPS preview, oMLX-style sidebar (Dashboard / Agents / Lighting / Bridge / Devices / Logs), menu bar extra, Settings, and the same HTTP contract on `127.0.0.1:7420`. The driver is vendor-pluggable; this build only implements **ASUS / ROG Aura Direct** (Scope II RX/NX mapped; other TUF/ROG boards are listed as unmapped). Only one process can own the Aura collection — stop `python -m agent_keyboard serve` before launching the app.
 
+The Lighting workbench keeps all six agents, all six editable states, the full keyboard, and an always-visible property panel on one screen. Entering the workbench previews every edit on the connected keyboard in real time and saves it automatically; **Done** (or leaving the page/window) restores automatic status lighting. Each agent state binds to a named scheme containing the effect, a 1–5 stop palette, effect-specific properties, brightness, speed, and a per-key selection. Custom schemes can remain shared references, while **Copy to Other States** creates an independent scheme for every target, including its key selection. Built-in schemes fork on first edit. F1–F6 remain locked identity lamps and never enter the editable selection.
+
+The 16 cookbook effects expose only properties they render (for example angle/width for spatial effects, density/tail for particles, decay/background for transient effects, and positioned stops for gradients). This is a single-device editor inspired by Armoury Crate’s basic lighting properties; it does not implement key-function remapping, agent-by-zone assignment, Aura Sync, profile import/export, or an Aura Creator timeline.
+
 Bridge → Install available hooks prepends a 1s fire-and-forget `notify.sh` onto Codex / Claude / Cursor / Hermes configs without replacing mnemon/memmy. The app also does this on launch. Pi gets `hooks/pi-hooks.yaml`; Workbuddy installs only if `~/.codebuddy/settings.json` exists.
+
+Codex discovers new commands from `~/.codex/hooks.json` as untrusted. Open `/hooks` once and trust the `~/.codex/hooks/agent-keyboard.sh` entries; enabled-but-untrusted hooks are skipped and F1 remains idle.
 
 ```bash
 ./hooks/notify.sh codex SessionStart

@@ -43,7 +43,7 @@ STATUS=running
 case "$EVENT_KEY" in
   sessionstart|session_start|on_session_start|userpromptsubmit|user_prompt_submit|beforesubmitprompt|pre_llm_call|running|thinking|afteragentthought)
     STATUS=running ;;
-  pretooluse|pre_tool_use|pre_tool_call|post_tool_call|beforeshellexecution|beforemcpexecution|tool)
+  pretooluse|pre_tool_use|posttooluse|post_tool_use|pre_tool_call|post_tool_call|beforeshellexecution|beforemcpexecution|tool)
     STATUS=tool ;;
   permissionrequest|pre_approval_request|notification|approval)
     STATUS=approval ;;
