@@ -17,16 +17,21 @@ struct LightingConfigurationPanel: View {
 
             Divider()
 
+            LightingSchemePickerControl()
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+
+            Divider()
+
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    LightingSchemePickerControl()
+                VStack(alignment: .leading, spacing: 12) {
                     LightingEffectPickerControl()
                     LightingColorControls()
                     LightingParameterControls()
                     LightingResetControl()
                     LightingGlyphControl()
                 }
-                    .padding(14)
+                .padding(14)
             }
 
             Divider()
@@ -116,13 +121,13 @@ private struct LightingSchemePickerControl: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.akSecondary)
-        .popover(isPresented: $libraryPresented, arrowEdge: .trailing) {
-            ScrollView {
-                LightingSchemeLibraryControl()
-                    .padding(14)
-            }
-            .frame(width: 370, height: 500)
-            .environment(model)
+        .popover(isPresented: $libraryPresented, arrowEdge: .leading) {
+            LightingSchemeLibraryControl()
+                .padding(16)
+                .frame(width: 330)
+                .fixedSize(horizontal: false, vertical: true)
+                .presentationSizing(.fitted)
+                .environment(model)
         }
         .accessibilityValue(Text(verbatim: model.lightingSchemeDisplayName(model.currentLightingScheme)))
     }

@@ -48,6 +48,14 @@ enum AKTheme {
         light: NSColor(srgbRed: 0.925, green: 0.940, blue: 0.970, alpha: 0.92),
         dark: NSColor(srgbRed: 0.035, green: 0.043, blue: 0.074, alpha: 0.94)
     )
+    static let sidebarSelection = Color.adaptive(
+        light: NSColor(srgbRed: 0.805, green: 0.835, blue: 1.000, alpha: 0.34),
+        dark: NSColor(srgbRed: 0.305, green: 0.230, blue: 0.510, alpha: 0.42)
+    )
+    static let sidebarHover = Color.adaptive(
+        light: NSColor(srgbRed: 0.710, green: 0.745, blue: 0.840, alpha: 0.12),
+        dark: NSColor(srgbRed: 0.600, green: 0.630, blue: 0.790, alpha: 0.10)
+    )
     static let card = Color.adaptive(
         light: NSColor(srgbRed: 0.985, green: 0.990, blue: 1, alpha: 0.88),
         dark: NSColor(srgbRed: 0.055, green: 0.065, blue: 0.105, alpha: 0.86)

@@ -56,7 +56,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .devices: "keyboard"
         case .agents: "person.3"
-        case .lighting: "lightbulb.fill"
+        case .lighting: "lightbulb"
         }
     }
 }
