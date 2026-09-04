@@ -24,6 +24,7 @@ final class AppModel {
     var lightingPreviewActive = false
     var sidebar: SidebarItem = .agents
     var selectedPeripheral: PeripheralKind = .keyboard
+    var selectedPeripheralID: String = PeripheralKind.keyboard.rawValue
     var lightingSchemes: [String: LightingScheme] = LightingSchemeLibrary.builtIns()
     var agentSchemeAssignments: [String: [AgentStatus: String]] = LightingSchemeLibrary.defaultAssignments()
     var agentLooks: [String: [AgentStatus: StateLook]] = AgentLookBook.seeded()
@@ -42,6 +43,7 @@ final class AppModel {
     var mcpCopied: MCPCopiedFeedback = .none
 
     @ObservationIgnored private var keyboard: KeyboardDriver?
+    @ObservationIgnored private var hidMonitor = HIDDeviceMonitor()
     @ObservationIgnored private var bridge = EventBridge()
     @ObservationIgnored private var engineTask: Task<Void, Never>?
     @ObservationIgnored private var reconnectTask: Task<Void, Never>?
@@ -102,14 +104,49 @@ final class AppModel {
     }
 
     var peripherals: [PeripheralSnapshot] {
-        [
-            .init(
-                kind: .keyboard,
-                name: identity?.product ?? PeripheralKind.keyboard.product,
-                connected: connection.isLive
-            ),
-            .init(kind: .mouse, name: PeripheralKind.mouse.product, connected: false),
-        ]
+        keyboardSnapshots + [Self.mousePlaceholder]
+    }
+
+    private var keyboardSnapshots: [PeripheralSnapshot] {
+        if simulate, connection.isLive, let identity {
+            return [snapshot(from: identity, connected: true)]
+        }
+        let boards = discovered.map { identity in
+            snapshot(from: identity, connected: true)
+        }
+        if boards.isEmpty {
+            return [Self.keyboardPlaceholder]
+        }
+        return boards
+    }
+
+    private static let keyboardPlaceholder = PeripheralSnapshot(
+        kind: .keyboard,
+        name: PeripheralKind.keyboard.product,
+        connected: false,
+        connectionKind: PeripheralKind.keyboard.defaultConnection,
+        lightingAvailable: false,
+        id: PeripheralKind.keyboard.rawValue
+    )
+
+    private static let mousePlaceholder = PeripheralSnapshot(
+        kind: .mouse,
+        name: PeripheralKind.mouse.product,
+        connected: false,
+        connectionKind: PeripheralKind.mouse.defaultConnection,
+        lightingAvailable: false,
+        id: PeripheralKind.mouse.rawValue
+    )
+
+    private func snapshot(from identity: DeviceIdentity, connected: Bool) -> PeripheralSnapshot {
+        PeripheralSnapshot(
+            kind: .keyboard,
+            name: identity.product,
+            connected: connected,
+            connectionKind: identity.connection,
+            lightingAvailable: identity.lightingCapable,
+            id: "keyboard-\(identity.dedupeKey)"
+        )
     }
 
     var connectedPeripherals: [PeripheralSnapshot] { peripherals.filter(\.connected) }
@@ -126,8 +163,18 @@ final class AppModel {
         Date().timeIntervalSince(startedAt)
     }
 
+    var selectedSnapshot: PeripheralSnapshot {
+        peripherals.first { $0.id == selectedPeripheralID }
+            ?? peripherals.first { $0.kind == selectedPeripheral }
+            ?? Self.keyboardPlaceholder
+    }
+
     func productName(for kind: PeripheralKind) -> String {
-        if kind == .keyboard { return identity?.product ?? kind.product }
+        if kind == .keyboard {
+            return identity?.product
+                ?? discovered.first?.product
+                ?? kind.product
+        }
         return kind.product
     }
 
@@ -136,6 +183,35 @@ final class AppModel {
         case .keyboard: connection.isLive
         case .mouse: false
         }
+    }
+
+    func peripheral(for kind: PeripheralKind) -> PeripheralSnapshot {
+        if kind == selectedSnapshot.kind {
+            return selectedSnapshot
+        }
+        return peripherals.first { $0.kind == kind }
+            ?? (kind == .keyboard ? Self.keyboardPlaceholder : Self.mousePlaceholder)
+    }
+
+    func selectPeripheral(_ device: PeripheralSnapshot) {
+        selectedPeripheral = device.kind
+        selectedPeripheralID = device.id
+    }
+
+    func canUseForAgentLighting(_ kind: PeripheralKind) -> Bool {
+        kind.implemented && peripheral(for: kind).lightingAvailable
+    }
+
+    var toolbarConnectionText: LocalizedStringResource {
+        connectionStatusText(for: .keyboard)
+    }
+
+    func connectionStatusText(for kind: PeripheralKind) -> LocalizedStringResource {
+        let board = peripheral(for: kind)
+        if board.connected {
+            return AKL("Connected · \(board.connectionKind.localizedName(locale: resolvedLocale))")
+        }
+        return AKL("Unavailable")
     }
 
     func look(for status: AgentStatus, agentID: String? = nil) -> StateLook {
@@ -244,6 +320,7 @@ final class AppModel {
         configureHIDWriter()
         startBridge()
         ensureAgentHooks()
+        startHIDMonitor()
         refreshDevices()
         connect()
         startEngine()
@@ -266,6 +343,7 @@ final class AppModel {
     func shutdown() {
         persistLightingConfigurationNow()
         userStopped = true
+        hidMonitor.stop()
         reconnectTask?.cancel()
         reconnectTask = nil
         engineTask?.cancel()
@@ -308,15 +386,19 @@ final class AppModel {
                 connection = .connected(hid.identity.product)
                 reconnectAttempt = 0
                 hidWriter.setKeyboard(hid)
-                log("hid", "Opened \(hid.identity.product) \(hid.identity.pidHex)")
+                log("hid", "Opened \(hid.identity.product) \(hid.identity.pidHex) \(hid.identity.connection.title)")
             }
+            syncSelectedKeyboard()
         } catch {
             keyboard = nil
             hidWriter.setKeyboard(nil)
             lastError = describe(error)
             connection = .failed(AKString("Keyboard not available", locale: resolvedLocale))
             log("hid", lastError ?? "open failed")
-            scheduleReconnect()
+            syncSelectedKeyboard()
+            if discovered.contains(where: \.lightingCapable) {
+                scheduleReconnect()
+            }
         }
     }
 
@@ -422,6 +504,9 @@ final class AppModel {
 
     func beginLightingEditing() {
         selectedPeripheral = .keyboard
+        if let identity {
+            selectedPeripheralID = "keyboard-\(identity.dedupeKey)"
+        }
         clearCanvasPin()
         guard !lightingPreviewActive else { return }
         lightingPreviewActive = true
@@ -789,7 +874,69 @@ final class AppModel {
     }
 
     func refreshDevices() {
-        discovered = KeyboardHID.enumerateDevices()
+        if simulate {
+            discovered = identity.map { [$0] } ?? []
+        } else {
+            discovered = KeyboardHID.enumerateDevices()
+        }
+        syncSelectedKeyboard()
+    }
+
+    private func syncSelectedKeyboard() {
+        if selectedPeripheral == .keyboard, let identity {
+            let openedID = "keyboard-\(identity.dedupeKey)"
+            if peripherals.contains(where: { $0.id == openedID }) {
+                selectedPeripheralID = openedID
+                return
+            }
+        }
+        if peripherals.contains(where: { $0.id == selectedPeripheralID }) {
+            return
+        }
+        selectedPeripheralID = peripherals.first { $0.kind == selectedPeripheral }?.id
+            ?? PeripheralKind.keyboard.rawValue
+    }
+
+    private func startHIDMonitor() {
+        hidMonitor.start { [weak self] in
+            Task { @MainActor in
+                self?.handleHIDChange()
+            }
+        }
+    }
+
+    private func handleHIDChange() {
+        guard !simulate, !userStopped else { return }
+        if case .connecting = connection {
+            refreshDevices()
+            return
+        }
+        refreshDevices()
+        let mappedAura = discovered.filter(\.lightingCapable)
+        if connection.isLive {
+            let stillThere = mappedAura.contains { candidate in
+                guard let identity else { return false }
+                return candidate.productID == identity.productID
+                    && candidate.connection == identity.connection
+            }
+            if stillThere { return }
+            keyboard?.close()
+            keyboard = nil
+            hidWriter.setKeyboard(nil)
+            identity = nil
+            connection = .disconnected
+            log("hid", "Keyboard disconnected")
+            if !mappedAura.isEmpty {
+                reconnectAttempt = 0
+                connect()
+            }
+            return
+        }
+        if !mappedAura.isEmpty {
+            reconnectTask?.cancel()
+            reconnectAttempt = 0
+            connect()
+        }
     }
 
     var libraryIntegrations: [IntegrationSpec] {
@@ -1454,6 +1601,7 @@ final class AppModel {
 
     private func scheduleReconnect() {
         guard !simulate, !userStopped else { return }
+        guard discovered.contains(where: \.lightingCapable) else { return }
         reconnectTask?.cancel()
         let delay = Swift.min(30, pow(2.0, Double(Swift.min(reconnectAttempt, 4))))
         reconnectAttempt += 1
@@ -1546,6 +1694,7 @@ final class AppModel {
         model.lastHIDWrite = Date()
         model.lightingMap = .scopeII
         model.discovered = [model.identity!]
+        model.selectedPeripheralID = "keyboard-\(model.identity!.dedupeKey)"
         model.lastPixels = SceneRenderer.renderBoard(
             dash,
             looks: AgentLookBook.seeded(),

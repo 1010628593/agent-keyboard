@@ -16,8 +16,32 @@ public enum KeyboardVendor: String, Sendable, Equatable, Identifiable, CaseItera
     public var implemented: Bool { self == .asus }
 }
 
+public enum ConnectionKind: String, Sendable, Equatable, Identifiable, CaseIterable {
+    case usb
+    case rf24
+    case bluetooth
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .usb: "USB"
+        case .rf24: "2.4G"
+        case .bluetooth: "Bluetooth"
+        }
+    }
+
+    public var symbol: String {
+        switch self {
+        case .usb: "cable.connector"
+        case .rf24: "wifi"
+        case .bluetooth: "logo.bluetooth"
+        }
+    }
+}
+
 public struct DeviceIdentity: Hashable, Sendable, Identifiable, Equatable {
-    public var id: String { "\(vendorID)-\(productID)-\(product)" }
+    public var id: String { "\(vendorID)-\(productID)-\(connection.rawValue)-\(product)" }
     public var vendor: KeyboardVendor
     public var vendorID: UInt16
     public var productID: UInt16
@@ -27,6 +51,8 @@ public struct DeviceIdentity: Hashable, Sendable, Identifiable, Equatable {
     public var layoutMapped: Bool
     public var usagePage: UInt32
     public var usage: UInt32
+    public var connection: ConnectionKind
+    public var hasAuraControl: Bool
 
     public init(
         vendor: KeyboardVendor,
@@ -37,7 +63,9 @@ public struct DeviceIdentity: Hashable, Sendable, Identifiable, Equatable {
         layoutName: String? = nil,
         layoutMapped: Bool,
         usagePage: UInt32 = AK.controlUsagePage,
-        usage: UInt32 = AK.controlUsage
+        usage: UInt32 = AK.controlUsage,
+        connection: ConnectionKind = .usb,
+        hasAuraControl: Bool = true
     ) {
         self.vendor = vendor
         self.vendorID = vendorID
@@ -48,10 +76,20 @@ public struct DeviceIdentity: Hashable, Sendable, Identifiable, Equatable {
         self.layoutMapped = layoutMapped
         self.usagePage = usagePage
         self.usage = usage
+        self.connection = connection
+        self.hasAuraControl = hasAuraControl
     }
 
     public var pidHex: String {
         String(format: "0x%04X", productID)
+    }
+
+    public var dedupeKey: String {
+        "\(vendorID)-\(productID)-\(connection.rawValue)"
+    }
+
+    public var lightingCapable: Bool {
+        hasAuraControl && layoutMapped
     }
 }
 
@@ -68,8 +106,13 @@ public struct AsusProduct: Sendable, Equatable, Identifiable {
 public enum AsusAuraCatalog {
     public static let vendorID: UInt16 = AK.asusVendorID
     public static let ignoredProductIDs: Set<UInt16> = [
-        0x1ACE, // ROG Omni Receiver (mouse dongle)
-        0x1B84, // ROG Pelta
+        AK.peltaProductID,
+    ]
+    public static let rf24ProductIDs: Set<UInt16> = [
+        0x1A85, // ROG Azoth 2.4GHz
+        0x193E, // ROG Falchion wireless
+        0x19F8, // ROG Strix Scope NX Wireless Deluxe 2.4GHz
+        AK.omniReceiverProductID,
     ]
 
     public static let products: [AsusProduct] = [
@@ -83,6 +126,10 @@ public enum AsusAuraCatalog {
         .init(productID: 0x18AA, name: "TUF Gaming K3", family: "TUF", layout: nil),
         .init(productID: 0x1A05, name: "TUF Gaming K1", family: "TUF", layout: nil),
         .init(productID: 0x1AED, name: "TUF Gaming K5", family: "TUF", layout: nil),
+        .init(productID: 0x1A85, name: "ROG Azoth", family: "ROG", layout: nil),
+        .init(productID: 0x193E, name: "ROG Falchion", family: "ROG", layout: nil),
+        .init(productID: 0x19F8, name: "ROG Strix Scope NX Wireless Deluxe", family: "ROG", layout: nil),
+        .init(productID: AK.omniReceiverProductID, name: "ROG Omni Receiver", family: "ROG", layout: nil),
     ]
 
     public static let mappedProductIDs: Set<UInt16> = Set(
@@ -97,20 +144,71 @@ public enum AsusAuraCatalog {
         ignoredProductIDs.contains(productID)
     }
 
+    public static func isOmniReceiver(productID: UInt16, product: String) -> Bool {
+        productID == AK.omniReceiverProductID
+            || product.localizedCaseInsensitiveContains("OMNI RECEIVER")
+    }
+
+    public static func isAuraControl(usagePage: UInt32, usage: UInt32) -> Bool {
+        usagePage == AK.controlUsagePage && usage == AK.controlUsage
+    }
+
+    public static func isBootKeyboard(usagePage: UInt32, usage: UInt32) -> Bool {
+        usagePage == AK.genericDesktopUsagePage && usage == AK.keyboardUsage
+    }
+
+    public static func connectionKind(
+        productID: UInt16,
+        product: String,
+        transport: String?
+    ) -> ConnectionKind {
+        let transport = transport ?? ""
+        if transport.hasPrefix("Bluetooth") {
+            return .bluetooth
+        }
+        if rf24ProductIDs.contains(productID) || isOmniReceiver(productID: productID, product: product) {
+            return .rf24
+        }
+        return .usb
+    }
+
+    public static func shouldEnumerate(
+        productID: UInt16,
+        product: String,
+        usagePage: UInt32,
+        usage: UInt32
+    ) -> Bool {
+        if isIgnored(productID) { return false }
+        let aura = isAuraControl(usagePage: usagePage, usage: usage)
+        let keyboard = isBootKeyboard(usagePage: usagePage, usage: usage)
+        if isOmniReceiver(productID: productID, product: product) {
+            return aura || keyboard
+        }
+        return aura || keyboard
+    }
+
     public static func identity(
         productID: UInt16,
         product: String,
-        firmware: String? = nil
+        firmware: String? = nil,
+        transport: String? = nil,
+        usagePage: UInt32 = AK.controlUsagePage,
+        usage: UInt32 = AK.controlUsage
     ) -> DeviceIdentity {
         let known = known(for: productID)
+        let resolved = product.isEmpty ? (known?.name ?? "ASUS Keyboard") : product
         return DeviceIdentity(
             vendor: .asus,
             vendorID: vendorID,
             productID: productID,
-            product: product.isEmpty ? (known?.name ?? "ASUS Keyboard") : product,
+            product: resolved,
             firmware: firmware,
             layoutName: known?.layout?.name,
-            layoutMapped: known?.layoutMapped ?? false
+            layoutMapped: known?.layoutMapped ?? false,
+            usagePage: usagePage,
+            usage: usage,
+            connection: connectionKind(productID: productID, product: resolved, transport: transport),
+            hasAuraControl: isAuraControl(usagePage: usagePage, usage: usage)
         )
     }
 

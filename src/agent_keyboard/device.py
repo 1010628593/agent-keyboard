@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from .connection import classify_connection, missing_control_message
 from .constants import (
     ASUS_VID,
     CMD_EFFECT,
@@ -53,6 +54,8 @@ class HidMatch:
     usage_page: int
     usage: int
     interface_number: int
+    bus_type: int | None = None
+    connection: str = "usb"
 
 
 def _hid_path(path: object) -> str:
@@ -223,6 +226,34 @@ def _command(*payload: int) -> bytes:
     return bytes(buf)
 
 
+def _hid_match(
+    *,
+    path: str,
+    vendor_id: int,
+    product_id: int,
+    product: str,
+    usage_page: int,
+    usage: int,
+    interface_number: int,
+    bus_type: int | None = None,
+) -> HidMatch:
+    return HidMatch(
+        path=path,
+        vendor_id=vendor_id,
+        product_id=product_id,
+        product=product,
+        usage_page=usage_page,
+        usage=usage,
+        interface_number=interface_number,
+        bus_type=bus_type,
+        connection=classify_connection(
+            product_id,
+            product,
+            bus_type=bus_type,
+        ),
+    )
+
+
 def enumerate_matches() -> list[HidMatch]:
     matches = _enumerate_hid_module()
     if matches is None:
@@ -239,12 +270,7 @@ def find_keyboard(simulate: bool = False) -> KeyboardDevice:
         # Still list ASUS PIDs so probe can explain usage-page misses.
         asus = [m for m in all_matches if m.vendor_id == ASUS_VID]
         if asus:
-            names = sorted({f"{m.product or 'ASUS'} (0x{m.product_id:04X})" for m in asus})
-            raise DeviceError(
-                "ROG Strix Scope II RX/NX not found (need PID 0x1AB5 or 0x1AB3). "
-                f"USB currently shows: {', '.join(names)}. "
-                "Plug the keyboard in over USB — the Omni Receiver is a different device."
-            )
+            raise DeviceError(missing_control_message(asus))
         raise DeviceError(
             "ROG Strix Scope II RX/NX not found (VID 0x0B05 PID 0x1AB5/0x1AB3). "
             "Plug it in over USB and close Armoury Crate / OpenRGB if those are running."
@@ -276,8 +302,9 @@ def _enumerate_hid_module() -> list[HidMatch] | None:
         if vid != ASUS_VID:
             continue
         product = item.get("product_string") or ""
+        bus_type = item.get("bus_type")
         found.append(
-            HidMatch(
+            _hid_match(
                 path=_hid_path(item.get("path")),
                 vendor_id=vid,
                 product_id=pid,
@@ -285,6 +312,7 @@ def _enumerate_hid_module() -> list[HidMatch] | None:
                 usage_page=int(item.get("usage_page") or 0),
                 usage=int(item.get("usage") or 0),
                 interface_number=int(item.get("interface_number") if item.get("interface_number") is not None else -1),
+                bus_type=int(bus_type) if bus_type is not None else None,
             )
         )
     return found
@@ -433,7 +461,7 @@ def _enumerate_ctypes() -> list[HidMatch]:
             info = node.contents
             product = info.product_string or ""
             found.append(
-                HidMatch(
+                _hid_match(
                     path=_hid_path(info.path),
                     vendor_id=info.vendor_id,
                     product_id=info.product_id,

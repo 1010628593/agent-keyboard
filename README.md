@@ -70,13 +70,17 @@ Lighting control uses the ASUS Aura **vendor HID collection** (usage page `0xFF0
 | ROG Strix Scope II RX (游侠 2 RX) | `0x1AB5` | Mapped — 107 LEDs |
 | ROG Strix Scope II NX | `0x1AB3` | Mapped — same layout |
 | Other TUF / ROG Aura boards | various | Visible, LED map not implemented |
-| ROG Omni Receiver | `0x1ACE` | Ignored (mouse dongle) |
+| ROG Omni Receiver | `0x1ACE` | Recognized as 2.4G when a keyboard collection is present; not Aura Direct |
 | ROG Harpe Ace | — | UI placeholder; wheel lighting is not controllable |
 
-### Plug in over USB
+### Recognition vs lighting
 
-1. Use the keyboard’s **USB-C cable**. SpeedNova 2.4 GHz and Bluetooth do not expose Aura Direct on macOS.
-2. Do not use a **ROG Omni Receiver**. That dongle is a different ASUS device (typically a mouse) and is ignored.
+Agent Light auto-detects ASUS/ROG keyboards on **USB**, **2.4G**, and **Bluetooth**. Insert, pair, or unplug and Devices updates immediately.
+
+Lighting still needs the Aura **vendor HID collection** (`usage=FF00:0001`). That is typically USB. Some dedicated 2.4G receivers expose the same collection; Bluetooth and the Omni Receiver usually do not.
+
+1. Prefer the keyboard’s **USB-C cable** for Agent lighting.
+2. A **ROG Omni Receiver** can show the keyboard as connected over 2.4G, but it is not opened as Scope II lighting.
 3. Quit **Armoury Crate**, **OpenRGB**, and any other Aura owner. Only one process can hold the collection.
 4. Pick **one** owner: `python -m agent_keyboard serve` **or** the Agent Light app, not both.
 
@@ -93,17 +97,17 @@ No keyboard yet: use `--simulate`, or Settings → Simulate keyboard in the app.
 
 ### Agent Light app
 
-The app opens the keyboard on launch. **Devices** shows Connected / Unavailable automatically.
+The app opens a mapped Aura keyboard on launch. **Devices** shows USB / 2.4G / Bluetooth automatically.
 
 - Stop `python -m agent_keyboard serve` before launching the app.
 - Settings → Keyboard → **Connect Keyboard** if the open failed.
-- **Use for Agent Lighting** enables the dashboard on a mapped board.
+- **Use for Agent Lighting** is enabled only on a mapped board with Aura Direct.
 
 ### If connect fails
 
 | Symptom | What to do |
 | --- | --- |
-| No ASUS HID, or no `*` row | Cable in, not 2.4G / Omni. For the Python CLI: `brew install hidapi` |
+| No ASUS HID, or no `*` row | Cable in for lighting. 2.4G / Bluetooth still appear in Devices. For the Python CLI: `brew install hidapi` |
 | Aura interface busy | Stop the other owner, then Connect |
 | Unmapped board | Catalog only until a LED map exists for that PID |
 | HID write failed | Unplug/replug USB; close Armoury Crate / OpenRGB |

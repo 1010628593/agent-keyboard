@@ -33,14 +33,15 @@ struct DeviceInspector: View {
     @Environment(AppModel.self) private var model
 
     private var kind: PeripheralKind { model.selectedPeripheral }
+    private var snapshot: PeripheralSnapshot { model.peripheral(for: kind) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(spacing: 8) {
                 Image(systemName: kind.symbol)
                     .font(.system(size: 32))
-                    .foregroundStyle(model.isConnected(kind) ? AKTheme.accent : Color.secondary)
-                Text(verbatim: model.productName(for: kind))
+                    .foregroundStyle(snapshot.connected ? AKTheme.accent : Color.secondary)
+                Text(verbatim: snapshot.name)
                     .font(.callout.weight(.medium))
                     .multilineTextAlignment(.center)
             }
@@ -48,12 +49,12 @@ struct DeviceInspector: View {
             .padding(.vertical, 18)
             .background(AKTheme.keyWell, in: .rect(cornerRadius: 12))
             labeled(AKL("Type"), kind.localizedTitle)
-            labeled(AKL("Connection"), verbatim: kind.connection)
+            labeled(AKL("Connection"), snapshot.connectionKind.localizedTitle)
             HStack {
                 Text(AKL("Status")).foregroundStyle(.secondary)
                 Spacer()
-                Text(model.isConnected(kind) ? AKL("Connected") : AKL("Unavailable"))
-                    .foregroundStyle(model.isConnected(kind) ? AKTheme.success : .secondary)
+                Text(snapshot.connected ? AKL("Connected") : AKL("Unavailable"))
+                    .foregroundStyle(snapshot.connected ? AKTheme.success : .secondary)
             }
             .font(.callout)
             if kind == .keyboard {
@@ -67,7 +68,7 @@ struct DeviceInspector: View {
                     Text(AKL("F1–F6 are online agents. The rest of the board follows priority."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    ZoneSchematic(kind: kind, active: model.isConnected(kind), previewHeight: 64)
+                    ZoneSchematic(kind: kind, active: snapshot.connected, previewHeight: 64)
                         .frame(height: 72)
                 }
             } else {
@@ -81,7 +82,7 @@ struct DeviceInspector: View {
                     Text(AKL("Mouse lighting is preview only"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    ZoneSchematic(kind: kind, active: model.isConnected(kind), previewHeight: 64)
+                    ZoneSchematic(kind: kind, active: snapshot.connected, previewHeight: 64)
                         .frame(height: 72)
                 }
             }
@@ -96,8 +97,8 @@ struct DeviceInspector: View {
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.akPrimary)
-            .disabled(!kind.implemented)
-            .opacity(kind.implemented ? 1 : 0.45)
+            .disabled(!model.canUseForAgentLighting(kind))
+            .opacity(model.canUseForAgentLighting(kind) ? 1 : 0.45)
         }
     }
 
@@ -169,15 +170,9 @@ struct AssignmentInspector: View {
                     .foregroundStyle(AKTheme.accent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: model.productName(for: model.selectedPeripheral))
-                    if model.isConnected(model.selectedPeripheral) {
-                        Text(AKL("Connected · \(model.selectedPeripheral.connection)"))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text(AKL("Unavailable"))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    Text(model.connectionStatusText(for: model.selectedPeripheral))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }

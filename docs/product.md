@@ -29,10 +29,12 @@ Cookbook (Idle / Thinking / Tool / Approval / Done / Error)
 每台设备只显示：
 
 - 名称
-- 连接方式（USB / 2.4G）
+- 连接方式（USB / 2.4G / Bluetooth）
 - Connected / Unavailable
 - 键盘角色：F1–F6 是在线 Agent，其余是自动焦点画布
 - **Use for Agent Lighting**
+
+有线、2.4G、蓝牙都会自动识别。灯控仍需要 Aura Direct（通常是 USB；部分专用 2.4G 接收器也可以）。蓝牙和 Omni 上没有 Direct 时可以显示为已连接，但不能用于智能体灯光。
 
 当前硬件：
 

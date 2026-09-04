@@ -14,10 +14,10 @@ enum PeripheralKind: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    var connection: String {
+    var defaultConnection: ConnectionKind {
         switch self {
-        case .keyboard: "USB"
-        case .mouse: "2.4G"
+        case .keyboard: .usb
+        case .mouse: .rf24
         }
     }
 
@@ -42,7 +42,9 @@ struct PeripheralSnapshot: Identifiable, Equatable {
     var kind: PeripheralKind
     var name: String
     var connected: Bool
-    var id: String { kind.rawValue }
+    var connectionKind: ConnectionKind
+    var lightingAvailable: Bool
+    var id: String
 }
 
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {

@@ -69,7 +69,7 @@ struct DeviceCard: View {
 
     var body: some View {
         Button {
-            withAnimation(.snappy) { model.selectedPeripheral = device.kind }
+            withAnimation(.snappy) { model.selectPeripheral(device) }
         } label: {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: device.kind.symbol)
@@ -88,9 +88,9 @@ struct DeviceCard: View {
                             .font(.caption)
                             .foregroundStyle(device.connected ? .primary : .secondary)
                         Label {
-                            Text(verbatim: device.kind.connection)
+                            Text(device.connectionKind.localizedTitle)
                         } icon: {
-                            Image(systemName: device.kind == .keyboard ? "cable.connector" : "wifi")
+                            Image(systemName: device.connectionKind.symbol)
                         }
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -112,7 +112,7 @@ struct DeviceCard: View {
             .padding(14)
             .background(AKTheme.card, in: .rect(cornerRadius: AKTheme.radiusL))
             .opacity(device.connected ? 1 : 0.6)
-            .akSelected(model.selectedPeripheral == device.kind)
+            .akSelected(model.selectedPeripheralID == device.id)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(device.name)

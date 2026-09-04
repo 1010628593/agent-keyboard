@@ -63,6 +63,24 @@ extension PeripheralKind {
     }
 }
 
+extension ConnectionKind {
+    var localizedTitle: LocalizedStringResource {
+        switch self {
+        case .usb: AKL("USB")
+        case .rf24: AKL("2.4G")
+        case .bluetooth: AKL("Bluetooth")
+        }
+    }
+
+    func localizedName(locale: Locale) -> String {
+        switch self {
+        case .usb: AKString("USB", locale: locale)
+        case .rf24: AKString("2.4G", locale: locale)
+        case .bluetooth: AKString("Bluetooth", locale: locale)
+        }
+    }
+}
+
 extension LightingTarget {
     var localizedTitle: LocalizedStringResource {
         switch self {

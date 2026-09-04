@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .bridge import serve
 from .config import load_config
+from .connection import connection_label
 from .constants import DEFAULT_BRIDGE_HOST, DEFAULT_BRIDGE_PORT
 from .device import DeviceError, NullDevice, enumerate_matches, find_keyboard, is_scope_control
 from .preview import render_grid
@@ -112,7 +113,8 @@ def cmd_enumerate() -> int:
     for match in matches:
         mark = " *" if is_scope_control(match) else ""
         print(
-            f"pid=0x{match.product_id:04X}  iface={match.interface_number:>2}  "
+            f"pid=0x{match.product_id:04X}  {connection_label(match.connection):<10}  "
+            f"iface={match.interface_number:>2}  "
             f"usage={match.usage_page:04X}:{match.usage:04X}  {match.product!r}{mark}"
         )
         print(f"  {match.path}")

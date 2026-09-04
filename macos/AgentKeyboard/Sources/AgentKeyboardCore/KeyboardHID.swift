@@ -1,5 +1,6 @@
 import Foundation
 import IOKit.hid
+import CoreFoundation
 
 public enum HIDError: Error, Equatable {
     case notConnected
@@ -93,28 +94,34 @@ public final class KeyboardHID: KeyboardDriver, @unchecked Sendable {
         try queue.sync { try sendReportLocked(report) }
     }
 
+    public static func matchingDictionaries() -> [[String: Any]] {
+        [
+            [
+                kIOHIDVendorIDKey as String: Int(AK.asusVendorID),
+                kIOHIDPrimaryUsagePageKey as String: Int(AK.controlUsagePage),
+                kIOHIDPrimaryUsageKey as String: Int(AK.controlUsage),
+            ],
+            [
+                kIOHIDVendorIDKey as String: Int(AK.asusVendorID),
+                kIOHIDPrimaryUsagePageKey as String: Int(AK.genericDesktopUsagePage),
+                kIOHIDPrimaryUsageKey as String: Int(AK.keyboardUsage),
+            ],
+        ]
+    }
+
+    public static func matchingCFArray() -> CFArray {
+        matchingDictionaries().map { $0 as CFDictionary } as CFArray
+    }
+
     public static func enumerateDevices() -> [DeviceIdentity] {
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        let match: [String: Any] = [
-            kIOHIDVendorIDKey as String: Int(AK.asusVendorID),
-            kIOHIDPrimaryUsagePageKey as String: Int(AK.controlUsagePage),
-            kIOHIDPrimaryUsageKey as String: Int(AK.controlUsage),
-        ]
-        IOHIDManagerSetDeviceMatching(manager, match as CFDictionary)
+        IOHIDManagerSetDeviceMatchingMultiple(manager, matchingCFArray())
         let opened = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         defer {
             IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         }
         guard opened == kIOReturnSuccess else { return [] }
-        return hidDevices(from: manager).compactMap { device in
-            let pid = numericProperty(device, kIOHIDProductIDKey) ?? 0
-            guard !AsusAuraCatalog.isIgnored(UInt16(truncatingIfNeeded: pid)) else { return nil }
-            let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? ""
-            return AsusAuraCatalog.identity(
-                productID: UInt16(truncatingIfNeeded: pid),
-                product: name
-            )
-        }
+        return deduplicatedIdentities(from: hidDevices(from: manager))
     }
 
     private func openLocked() throws {
@@ -131,19 +138,16 @@ public final class KeyboardHID: KeyboardDriver, @unchecked Sendable {
             throw HIDError.openFailed(opened)
         }
         self.manager = manager
-        let devices = Self.hidDevices(from: manager)
-        let candidates = devices.compactMap { device -> (IOHIDDevice, DeviceIdentity)? in
-            let pid = UInt16(truncatingIfNeeded: Self.numericProperty(device, kIOHIDProductIDKey) ?? 0)
-            guard !AsusAuraCatalog.isIgnored(pid) else { return nil }
-            let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? ""
-            return (device, AsusAuraCatalog.identity(productID: pid, product: name))
+        let candidates = Self.hidDevices(from: manager).compactMap { device -> (IOHIDDevice, DeviceIdentity)? in
+            guard let identity = Self.identity(from: device), identity.hasAuraControl else { return nil }
+            return (device, identity)
         }
         guard !candidates.isEmpty else {
             throw HIDError.notFound
         }
         let picked: (IOHIDDevice, DeviceIdentity)
         if let preferredProductID,
-           let match = candidates.first(where: { $0.1.productID == preferredProductID })
+           let match = candidates.first(where: { $0.1.productID == preferredProductID && $0.1.layoutMapped })
         {
             picked = match
         } else if let mapped = candidates.first(where: { $0.1.layoutMapped }) {
@@ -202,6 +206,48 @@ public final class KeyboardHID: KeyboardDriver, @unchecked Sendable {
         }
     }
 
+    private static func identity(from device: IOHIDDevice) -> DeviceIdentity? {
+        let pid = UInt16(truncatingIfNeeded: numericProperty(device, kIOHIDProductIDKey) ?? 0)
+        let usagePage = UInt32(truncatingIfNeeded: numericProperty(device, kIOHIDPrimaryUsagePageKey) ?? 0)
+        let usage = UInt32(truncatingIfNeeded: numericProperty(device, kIOHIDPrimaryUsageKey) ?? 0)
+        let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? ""
+        let transport = IOHIDDeviceGetProperty(device, kIOHIDTransportKey as CFString) as? String
+        guard AsusAuraCatalog.shouldEnumerate(
+            productID: pid,
+            product: name,
+            usagePage: usagePage,
+            usage: usage
+        ) else {
+            return nil
+        }
+        return AsusAuraCatalog.identity(
+            productID: pid,
+            product: name,
+            transport: transport,
+            usagePage: usagePage,
+            usage: usage
+        )
+    }
+
+    private static func deduplicatedIdentities(from devices: [IOHIDDevice]) -> [DeviceIdentity] {
+        var best: [String: DeviceIdentity] = [:]
+        for device in devices {
+            guard let identity = identity(from: device) else { continue }
+            if let existing = best[identity.dedupeKey] {
+                if identity.hasAuraControl, !existing.hasAuraControl {
+                    best[identity.dedupeKey] = identity
+                }
+            } else {
+                best[identity.dedupeKey] = identity
+            }
+        }
+        return best.values.sorted {
+            if $0.lightingCapable != $1.lightingCapable { return $0.lightingCapable && !$1.lightingCapable }
+            if $0.productID != $1.productID { return $0.productID < $1.productID }
+            return $0.product < $1.product
+        }
+    }
+
     private static func hidDevices(from manager: IOHIDManager) -> [IOHIDDevice] {
         guard let cfDevices = IOHIDManagerCopyDevices(manager) else { return [] }
         let count = CFSetGetCount(cfDevices)
@@ -220,5 +266,54 @@ public final class KeyboardHID: KeyboardDriver, @unchecked Sendable {
     private static func numericProperty(_ device: IOHIDDevice, _ key: String) -> Int? {
         guard let value = IOHIDDeviceGetProperty(device, key as CFString) else { return nil }
         return (value as? NSNumber)?.intValue
+    }
+}
+
+public final class HIDDeviceMonitor: @unchecked Sendable {
+    private var manager: IOHIDManager?
+    private var onChange: (@Sendable () -> Void)?
+
+    public init() {}
+
+    deinit { stop() }
+
+    public func start(onChange: @escaping @Sendable () -> Void) {
+        stop()
+        self.onChange = onChange
+        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        IOHIDManagerSetDeviceMatchingMultiple(manager, KeyboardHID.matchingCFArray())
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, _ in
+            HIDDeviceMonitor.emit(context)
+        }, context)
+        IOHIDManagerRegisterDeviceRemovalCallback(manager, { context, _, _, _ in
+            HIDDeviceMonitor.emit(context)
+        }, context)
+        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        let opened = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        guard opened == kIOReturnSuccess else {
+            self.onChange = nil
+            return
+        }
+        self.manager = manager
+        Self.emit(context)
+    }
+
+    public func stop() {
+        guard let manager else {
+            onChange = nil
+            return
+        }
+        IOHIDManagerRegisterDeviceMatchingCallback(manager, nil, nil)
+        IOHIDManagerRegisterDeviceRemovalCallback(manager, nil, nil)
+        IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        self.manager = nil
+        onChange = nil
+    }
+
+    private static func emit(_ context: UnsafeMutableRawPointer?) {
+        guard let context else { return }
+        Unmanaged<HIDDeviceMonitor>.fromOpaque(context).takeUnretainedValue().onChange?()
     }
 }

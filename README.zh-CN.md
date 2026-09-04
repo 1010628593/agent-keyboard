@@ -70,13 +70,17 @@ uv pip install -e ".[dev]"
 | ROG Strix Scope II RX（游侠 2 RX） | `0x1AB5` | 已映射 — 107 灯 |
 | ROG Strix Scope II NX | `0x1AB3` | 已映射 — 同一套布局 |
 | 其它 TUF / ROG Aura 键盘 | 若干 | 可见，灯位图尚未实现 |
-| ROG Omni Receiver | `0x1ACE` | 忽略（鼠标接收器） |
+| ROG Omni Receiver | `0x1ACE` | 有键盘集合时识别为 2.4G；不是 Aura Direct |
 | ROG Harpe Ace | — | 界面占位；滚轮灯不可控 |
 
-### 用 USB 接入
+### 识别与灯控
 
-1. 使用键盘自带的 **USB-C 线**。SpeedNova 2.4 GHz 和蓝牙在 macOS 上不暴露 Aura Direct。
-2. 不要用 **ROG Omni Receiver**。那是另一台 ASUS 设备（通常是鼠标），会被忽略。
+Agent Light 会自动识别 **有线 USB**、**2.4G**、**蓝牙** 上的 ASUS/ROG 键盘。插上、配对或拔掉后，设备页立即更新。
+
+灯控仍需要 Aura **厂商 HID 集合**（`usage=FF00:0001`）。通常是 USB。部分专用 2.4G 接收器也会暴露该集合；蓝牙和 Omni Receiver 一般没有。
+
+1. 智能体灯光优先用键盘自带的 **USB-C 线**。
+2. **ROG Omni Receiver** 可以把键盘显示为 2.4G 已连接，但不会当成 Scope II 去写灯。
 3. 退出 **Armoury Crate**、**OpenRGB** 以及其它占用 Aura 的程序。同一时刻只有一个进程能持有该集合。
 4. 只选 **一个** 占用者：`python -m agent_keyboard serve` **或** Agent Light 应用，不要同时开。
 
@@ -93,17 +97,17 @@ python -m agent_keyboard probe
 
 ### Agent Light 应用
 
-应用启动时会打开键盘。**设备** 页会自动显示已连接 / 不可用。
+应用启动时会打开已映射的 Aura 键盘。**设备** 页会自动显示 USB / 2.4G / 蓝牙。
 
 - 启动应用前先停掉 `python -m agent_keyboard serve`。
 - 如果打开失败，到 设置 → 键盘 → **连接键盘**。
-- **用于 Agent 灯光** 会在已映射的键盘上启用仪表盘。
+- **用于 Agent 灯光** 只在已映射且有 Aura Direct 的键盘上可用。
 
 ### 连接失败时
 
 | 现象 | 处理 |
 | --- | --- |
-| 没有 ASUS HID，或没有 `*` 行 | 换成数据线，不要用 2.4G / Omni。Python CLI 需先 `brew install hidapi` |
+| 没有 ASUS HID，或没有 `*` 行 | 写灯请插数据线。2.4G / 蓝牙仍会出现在设备页。Python CLI 需先 `brew install hidapi` |
 | Aura 接口正被占用 | 停掉另一个占用者，再连接 |
 | 未映射的键盘 | 只能出现在目录里，直到该 PID 有灯位图 |
 | HID 写入失败 | 拔掉再插 USB；关闭 Armoury Crate / OpenRGB |

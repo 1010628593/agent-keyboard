@@ -4,10 +4,14 @@ public enum AK {
     public static let asusVendorID: UInt16 = 0x0B05
     public static let scopeIIRXProductID: UInt16 = 0x1AB5
     public static let scopeIINXProductID: UInt16 = 0x1AB3
+    public static let omniReceiverProductID: UInt16 = 0x1ACE
+    public static let peltaProductID: UInt16 = 0x1B84
     public static let supportedProductIDs: Set<UInt16> = [scopeIIRXProductID, scopeIINXProductID]
 
     public static let controlUsagePage: UInt32 = 0xFF00
     public static let controlUsage: UInt32 = 0x0001
+    public static let genericDesktopUsagePage: UInt32 = 0x01
+    public static let keyboardUsage: UInt32 = 0x06
     public static let controlInterface = 1
 
     public static let ledCount = 107

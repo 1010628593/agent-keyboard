@@ -53,8 +53,8 @@ struct AppShell: View {
                         HStack(spacing: 4) {
                             Image(systemName: "circle.fill")
                                 .font(.system(size: 5))
-                                .foregroundStyle(model.connection.isLive ? AKTheme.success : .secondary)
-                            Text(model.connection.isLive ? AKL("Connected · USB") : AKL("Unavailable"))
+                                .foregroundStyle(model.peripheral(for: .keyboard).connected ? AKTheme.success : .secondary)
+                            Text(model.toolbarConnectionText)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
